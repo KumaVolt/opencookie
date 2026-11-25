@@ -363,16 +363,20 @@ const COOKIE = 'oc_consent';
     const optOut = config.model === 'opt-out';
     const b = el(`
       <div class="oc oc-banner oc-pos-${config.theme.position}" role="dialog" aria-modal="false" aria-labelledby="oc-title" aria-describedby="oc-body" tabindex="-1" lang="${esc(config.locale)}">
+        <div class="oc-inner">
+        <div class="oc-text">
         <h2 id="oc-title">${esc(optOut ? t.optOutTitle : t.title)}</h2>
         ${gpc ? `<p class="oc-notice">${esc(t.gpcHonored)}</p>` : ''}
         <p id="oc-body">${bodyWithLink(optOut ? t.optOutBody : t.body)}</p>
+        </div>
         <div class="oc-actions">
           ${optOut
             ? `<button type="button" class="oc-btn" data-act="optout">${esc(t.optOutButton)}</button>
                <button type="button" class="oc-btn" data-act="accept">${esc(t.okButton)}</button>`
             : `<button type="button" class="oc-btn" data-act="reject">${esc(t.rejectAll)}</button>
                <button type="button" class="oc-btn" data-act="accept">${esc(t.acceptAll)}</button>`}
-          <button type="button" class="oc-btn oc-btn-link" data-act="settings">${esc(t.customize)}</button>
+          <button type="button" class="${config.theme.position === 'bottom' ? 'oc-textlink' : 'oc-btn oc-btn-link'}" data-act="settings">${esc(t.customize)}</button>
+        </div>
         </div>
       </div>`);
     b.addEventListener('click', (e) => {

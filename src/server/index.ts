@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { Boot } from '../banner/banner.ts';
 import { join } from 'node:path';
@@ -9,7 +9,9 @@ import { checkCompliance } from '../core/compliance.ts';
 import { RULE_PACKS, getRulePack } from '../core/rulepacks.ts';
 import { SUPPORTED_LOCALES, TEMPLATES } from '../core/templates/index.ts';
 import type { CookieMatcher } from '../core/cookiedb.ts';
-import type { ConsentRecord } from '../core/types.ts';
+import type { ConsentRecord, Site } from '../core/types.ts';
+import { roleAtLeast, type Role } from './accounts.ts';
+import { registerAuth } from './auth.ts';
 import { config } from './config.ts';
 import { downloadCookieDb, loadMatcher, loadTranslations } from './data.ts';
 import { hostBelongsToSite, openDb, type SiteInput } from './db.ts';
@@ -153,50 +155,25 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
   // Admin
   // =========================================================================
 
-  const sessions = new Map<string, number>(); // token → expiry
-  const SESSION_COOKIE = 'oc_admin';
-  const getToken = (req: FastifyRequest) =>
-    (req.headers.cookie ?? '').split(/;\s*/).find((c) => c.startsWith(SESSION_COOKIE + '='))?.slice(SESSION_COOKIE.length + 1);
+  const auth = registerAuth(app, db);
 
-  app.addHook('onRequest', async (req, reply) => {
-    if (!req.url.startsWith('/admin/api/') || req.url.startsWith('/admin/api/login')) return;
-    const token = getToken(req);
-    const exp = token ? sessions.get(token) : undefined;
-    if (!exp || exp < Date.now()) return reply.code(401).send({ error: 'Not logged in' });
-    // Basic CSRF protection: state-changing requests must come from the admin page itself.
-    if (req.method !== 'GET' && req.headers['x-requested-with'] !== 'opencookie-admin') {
-      return reply.code(403).send({ error: 'Missing CSRF header' });
-    }
+  // Every /admin/api/sites/:id… route: the user must be a member of the site's client (organisation).
+  // Reading needs "viewer", changing needs "editor", deleting a site needs "owner".
+  app.addHook('preHandler', async (req, reply) => {
+    const route = req.routeOptions.url ?? '';
+    if (!route.startsWith('/admin/api/sites/:id')) return;
+    const site = db.getSite(Number((req.params as { id?: string }).id));
+    const role = site && req.user ? auth.siteRole(req.user, site) : null;
+    if (!site || !role) return reply.code(404).send({ error: 'Not found' });
+    const need: Role = req.method === 'GET' ? 'viewer' : req.method === 'DELETE' && route === '/admin/api/sites/:id' ? 'owner' : 'editor';
+    if (!roleAtLeast(role, need)) return reply.code(403).send({ error: `You need the ${need} role for this.` });
+    (req as { site?: Site }).site = site;
   });
-
-  let failedLogins = 0;
-  app.post<{ Body: { password?: string } }>('/admin/api/login', async (req, reply) => {
-    if (!config.adminPassword) return reply.code(500).send({ error: 'ADMIN_PASSWORD is not set on the server.' });
-    if (failedLogins > 20) return reply.code(429).send({ error: 'Too many failed logins; restart the server or wait.' });
-    const a = createHash('sha256').update(String(req.body?.password ?? '')).digest();
-    const b = createHash('sha256').update(config.adminPassword).digest();
-    if (!timingSafeEqual(a, b)) {
-      failedLogins++;
-      setTimeout(() => failedLogins--, 15 * 60_000).unref();
-      return reply.code(401).send({ error: 'Wrong password' });
-    }
-    const token = randomBytes(32).toString('base64url');
-    sessions.set(token, Date.now() + 12 * 3600_000);
-    reply.header(
-      'Set-Cookie',
-      `${SESSION_COOKIE}=${token}; Path=/admin; HttpOnly; SameSite=Strict; Max-Age=43200${config.secureCookies ? '; Secure' : ''}`,
-    );
-    return { ok: true };
-  });
-  app.post('/admin/api/logout', async (req, reply) => {
-    const t = getToken(req);
-    if (t) sessions.delete(t);
-    reply.header('Set-Cookie', `${SESSION_COOKIE}=; Path=/admin; Max-Age=0`);
-    return { ok: true };
-  });
+  const siteOf = (req: FastifyRequest) => (req as { site?: Site }).site!;
 
   app.get('/admin/api/meta', async () => ({
     publicUrl: config.publicUrl,
+    appName: config.appName,
     rulePacks: RULE_PACKS,
     locales: SUPPORTED_LOCALES.map((l) => ({ code: l, name: TEMPLATES[l]!.languageName })),
     categories: CATEGORIES,
@@ -205,48 +182,66 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
     translations: Object.fromEntries(translations.locales().map((l) => [l, Object.keys(translations.get(l)).length])),
   }));
 
-  app.post('/admin/api/cookie-db/update', async () => {
+  app.post('/admin/api/cookie-db/update', async (req) => {
+    auth.requirePlatform(req);
     const n = await downloadCookieDb();
     matcher = await loadMatcher();
     return { entries: n };
   });
 
   // ---- sites ----
-  app.get('/admin/api/sites', async () =>
-    db.listSites().map((s) => ({ ...s, latestScan: db.latestFinishedScan(s.id), cookieCount: db.listCookies(s.id).length })),
-  );
+  app.get('/admin/api/sites', async (req) => {
+    const u = req.user!;
+    const sites = u.isPlatformAdmin ? db.listSites() : db.listSitesInOrgs(db.memberships(u.id).map((m) => m.orgId));
+    const orgNames = new Map(db.listOrgs().map((o) => [o.id, o.name]));
+    return sites.map((s) => ({
+      ...s,
+      orgName: s.orgId ? orgNames.get(s.orgId) ?? '' : '',
+      yourRole: auth.siteRole(u, s),
+      latestScan: db.latestFinishedScan(s.id),
+      cookieCount: db.listCookies(s.id).length,
+    }));
+  });
 
-  app.post<{ Body: SiteInput & { name: string; domain: string } }>('/admin/api/sites', async (req, reply) => {
+  app.post<{ Body: SiteInput & { name: string; domain: string; orgId?: number } }>('/admin/api/sites', async (req, reply) => {
+    const orgId = Number(req.body?.orgId);
+    if (!orgId || !db.getOrg(orgId)) return reply.code(400).send({ error: 'Choose the client this site belongs to.' });
+    if (!roleAtLeast(auth.orgRole(req.user!, orgId), 'owner')) return reply.code(403).send({ error: 'Only owners of this client can add sites.' });
     const body = sanitiseSiteInput(req.body);
     if (!body.name || !body.domain) return reply.code(400).send({ error: 'Name and domain are required' });
-    return db.createSite(body as SiteInput & { name: string; domain: string });
+    const site = db.createSite(orgId, body as SiteInput & { name: string; domain: string });
+    auth.audit(req, 'site_created', { orgId, siteId: site.id, detail: `${site.name} (${site.domain})` });
+    return site;
   });
 
-  app.get<{ Params: { id: string } }>('/admin/api/sites/:id', async (req, reply) => {
-    const site = db.getSite(Number(req.params.id));
-    return site ?? reply.code(404).send({ error: 'Not found' });
+  app.get<{ Params: { id: string } }>('/admin/api/sites/:id', async (req) => {
+    const site = siteOf(req);
+    return { ...site, yourRole: auth.siteRole(req.user!, site), orgName: site.orgId ? db.getOrg(site.orgId)?.name ?? '' : '' };
   });
 
-  app.put<{ Params: { id: string }; Body: SiteInput }>('/admin/api/sites/:id', async (req, reply) => {
-    const id = Number(req.params.id);
-    const before = db.getSite(id);
-    if (!before) return reply.code(404).send({ error: 'Not found' });
+  app.put<{ Params: { id: string }; Body: SiteInput }>('/admin/api/sites/:id', async (req) => {
+    const before = siteOf(req);
+    const id = before.id;
     const site = db.updateSite(id, sanitiseSiteInput(req.body))!;
     // Purposes or texts changed → ask visitors again.
     if (JSON.stringify(before.textOverrides) !== JSON.stringify(site.textOverrides) || before.rulePack !== site.rulePack || JSON.stringify(before.exemptConfirmed) !== JSON.stringify(site.exemptConfirmed)) {
       db.bumpPolicyVersion(id);
     }
-    return db.getSite(id);
+    const changed = (Object.keys(req.body ?? {}) as (keyof Site)[]).filter((k) => JSON.stringify(before[k]) !== JSON.stringify(site[k]));
+    if (changed.length) auth.audit(req, 'site_updated', { orgId: site.orgId, siteId: id, detail: changed.join(', ') });
+    const fresh = db.getSite(id)!;
+    return { ...fresh, yourRole: auth.siteRole(req.user!, fresh), orgName: fresh.orgId ? db.getOrg(fresh.orgId)?.name ?? '' : '' };
   });
 
   app.delete<{ Params: { id: string } }>('/admin/api/sites/:id', async (req) => {
-    db.deleteSite(Number(req.params.id));
+    const site = siteOf(req);
+    db.deleteSite(site.id);
+    auth.audit(req, 'site_deleted', { orgId: site.orgId, siteId: site.id, detail: `${site.name} (${site.domain})` });
     return { ok: true };
   });
 
-  app.get<{ Params: { id: string } }>('/admin/api/sites/:id/embed', async (req, reply) => {
-    const site = db.getSite(Number(req.params.id));
-    if (!site) return reply.code(404).send({ error: 'Not found' });
+  app.get<{ Params: { id: string } }>('/admin/api/sites/:id/embed', async (req) => {
+    const site = siteOf(req);
     return {
       head: `<script src="${config.publicUrl}/s/${site.key}/banner.js"></script>`,
       policy: `<div data-oc-declaration></div>`,
@@ -257,8 +252,7 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
 
   // ---- cookies ----
   app.get<{ Params: { id: string } }>('/admin/api/sites/:id/cookies', async (req) => {
-    const site = db.getSite(Number(req.params.id));
-    if (!site) return [];
+    const site = siteOf(req);
     return db.listCookies(site.id).map((c) => ({
       ...c,
       translations: Object.fromEntries(site.locales.map((l) => [l, c.descriptionOverrides[l] || translations.translate(c.description, l)])),
@@ -278,6 +272,7 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
       retention: b.retention ?? '',
     });
     if (c.category !== 'necessary') db.bumpPolicyVersion(c.siteId);
+    auth.audit(req, 'cookie_added', { orgId: siteOf(req).orgId, siteId: c.siteId, detail: `${c.name} (${c.category})` });
     return c;
   });
 
@@ -293,28 +288,30 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
       descriptionOverrides: isStringRecord(b.descriptionOverrides) ? b.descriptionOverrides : undefined,
     })!;
     if (before.category !== c.category) db.bumpPolicyVersion(c.siteId);
+    auth.audit(req, 'cookie_updated', { orgId: siteOf(req).orgId, siteId: c.siteId, detail: before.category !== c.category ? `${c.name}: ${before.category} → ${c.category}` : c.name });
     return c;
   });
 
   app.delete<{ Params: { id: string; cookieId: string } }>('/admin/api/sites/:id/cookies/:cookieId', async (req) => {
     const c = db.getCookie(Number(req.params.cookieId));
-    if (c && c.siteId === Number(req.params.id)) db.deleteCookie(c.id);
+    if (c && c.siteId === Number(req.params.id)) {
+      db.deleteCookie(c.id);
+      auth.audit(req, 'cookie_deleted', { orgId: siteOf(req).orgId, siteId: c.siteId, detail: c.name });
+    }
     return { ok: true };
   });
 
   // ---- scans ----
   app.get<{ Params: { id: string } }>('/admin/api/sites/:id/scans', async (req) => db.listScans(Number(req.params.id)));
   app.post<{ Params: { id: string } }>('/admin/api/sites/:id/scans', async (req, reply) => {
-    const id = Number(req.params.id);
-    if (!db.getSite(id)) return reply.code(404).send({ error: 'Not found' });
+    const id = siteOf(req).id;
     if (scans.isBusy(id)) return reply.code(409).send({ error: 'A scan is already running for this site' });
     return { scanId: scans.enqueue(id) };
   });
 
   // ---- compliance ----
-  app.get<{ Params: { id: string } }>('/admin/api/sites/:id/compliance', async (req, reply) => {
-    const site = db.getSite(Number(req.params.id));
-    if (!site) return reply.code(404).send({ error: 'Not found' });
+  app.get<{ Params: { id: string } }>('/admin/api/sites/:id/compliance', async (req) => {
+    const site = siteOf(req);
     const cookies = db.listCookies(site.id);
     const missingTranslations: Record<string, number> = {};
     for (const l of site.locales) {
@@ -344,6 +341,7 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
   app.get<{ Params: { id: string } }>('/admin/api/sites/:id/consents.csv', async (req, reply) => {
     const siteId = Number(req.params.id);
     const { rows } = db.listConsents(siteId, { limit: 1_000_000 });
+    auth.audit(req, 'consents_exported', { orgId: siteOf(req).orgId, siteId });
     const q = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`;
     const csv = [
       'created_at,consent_id,action,categories,policy_version,locale,gpc,url,ip_hash,user_agent',
@@ -351,6 +349,76 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
     ].join('\n');
     reply.header('Content-Disposition', `attachment; filename="consents-site-${siteId}.csv"`);
     return reply.type('text/csv; charset=utf-8').send(csv);
+  });
+
+  // ---- statistics: everything for platform admins, otherwise the user's own clients ----
+  app.get<{ Querystring: { orgId?: string; days?: string } }>('/admin/api/stats', async (req, reply) => {
+    const u = req.user!;
+    const days = Math.min(365, Math.max(7, Number(req.query.days ?? 30) || 30));
+    const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const myOrgIds = u.isPlatformAdmin ? db.listOrgs().map((o) => o.id) : db.memberships(u.id).map((m) => m.orgId);
+    let orgIds = myOrgIds;
+    if (req.query.orgId) {
+      const id = Number(req.query.orgId);
+      if (!myOrgIds.includes(id)) return reply.code(404).send({ error: 'Not found' });
+      orgIds = [id];
+    }
+    const sites = db.listSitesInOrgs(orgIds);
+    const rows = db.consentDaily(sites.map((s) => s.id), since);
+    const orgOf = new Map(sites.map((s) => [s.id, s.orgId]));
+    const empty = () => ({ total: 0, accept_all: 0, reject_all: 0, custom: 0, gpc: 0, opt_out: 0 });
+    type Counts = ReturnType<typeof empty>;
+    const add = (c: Counts, action: string, n: number) => {
+      c.total += n;
+      if (action in c) (c as Record<string, number>)[action]! += n;
+    };
+    const total = empty();
+    const bySite = new Map<number, Counts>();
+    const byOrg = new Map<number, Counts>();
+    const byDay = new Map<string, Counts>();
+    for (const r of rows) {
+      add(total, r.action, r.n);
+      add(bySite.get(r.siteId) ?? (bySite.set(r.siteId, empty()), bySite.get(r.siteId)!), r.action, r.n);
+      const o = orgOf.get(r.siteId) ?? 0;
+      add(byOrg.get(o) ?? (byOrg.set(o, empty()), byOrg.get(o)!), r.action, r.n);
+      add(byDay.get(r.day) ?? (byDay.set(r.day, empty()), byDay.get(r.day)!), r.action, r.n);
+    }
+    const series = Array.from({ length: days }, (_, i) => {
+      const day = new Date(Date.parse(since) + i * 86_400_000).toISOString().slice(0, 10);
+      return { day, ...(byDay.get(day) ?? empty()) };
+    });
+    const siteRows = sites.map((s) => {
+      const latest = db.latestFinishedScan(s.id);
+      const cookies = db.listCookies(s.id);
+      const issues = checkCompliance({ site: s, cookies, latestScan: latest, missingTranslations: {} });
+      return {
+        id: s.id, name: s.name, domain: s.domain, orgId: s.orgId,
+        consents: bySite.get(s.id) ?? empty(),
+        cookies: cookies.length,
+        problems: issues.filter((i) => i.severity === 'error').length,
+        warnings: issues.filter((i) => i.severity === 'warning').length,
+        lastScan: latest?.finishedAt ?? null,
+      };
+    });
+    const orgs = db.listOrgs().filter((o) => orgIds.includes(o.id)).map((o) => {
+      const own = siteRows.filter((s) => s.orgId === o.id);
+      return { id: o.id, name: o.name, sites: own.length, members: db.orgMembers(o.id).length, consents: byOrg.get(o.id) ?? empty(), problems: own.reduce((a, s) => a + s.problems, 0) };
+    });
+    return {
+      days,
+      since,
+      scope: req.query.orgId ? 'client' : u.isPlatformAdmin ? 'platform' : 'mine',
+      totals: {
+        clients: orgs.length,
+        sites: sites.length,
+        users: u.isPlatformAdmin && !req.query.orgId ? db.countUsers() : new Set(orgIds.flatMap((id) => db.orgMembers(id).map((m) => m.id))).size,
+        sitesWithProblems: siteRows.filter((s) => s.problems > 0).length,
+        consents: total,
+      },
+      series,
+      orgs,
+      sites: siteRows,
+    };
   });
 
   // Admin single-page app
@@ -404,7 +472,7 @@ function sanitiseSiteInput(b: unknown): SiteInput {
     const t = i.theme as Record<string, unknown>;
     const colour = (v: unknown) => (typeof v === 'string' && /^#[0-9a-f]{3,8}$/i.test(v) ? v : undefined);
     out.theme = {
-      primary: colour(t.primary) ?? '#1f4fd1',
+      primary: colour(t.primary) ?? '#1a1a1a',
       background: colour(t.background) ?? '#ffffff',
       text: colour(t.text) ?? '#1a1a1a',
       position: t.position === 'center' || t.position === 'bottom-left' ? t.position : 'bottom',
@@ -421,6 +489,5 @@ function sanitiseSiteInput(b: unknown): SiteInput {
 if (import.meta.main) {
   const { app } = await buildServer();
   await app.listen({ port: config.port, host: config.host });
-  if (!config.adminPassword) console.warn('[opencookie] ADMIN_PASSWORD is not set: the admin cannot be used until you set it.');
   console.log(`[opencookie] Admin: ${config.publicUrl}/admin/`);
 }

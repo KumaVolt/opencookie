@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Category } from '../core/categories.ts';
 import type { ConsentRecord, CookieKind, ScanSummary, Site, SiteCookie } from '../core/types.ts';
 import { config } from './config.ts';
+import { accounts } from './accounts.ts';
 
 const MIGRATIONS = [
   `CREATE TABLE sites (
@@ -76,6 +77,90 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX consents_site_created ON consents (site_id, created_at)`,
   `CREATE INDEX consents_consent_id ON consents (consent_id)`,
+  // ---- v0.2: accounts, organisations (clients), 2FA, passkeys ----
+  `CREATE TABLE organisations (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,
+     require_2fa INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL
+   )`,
+  `CREATE TABLE users (
+     id INTEGER PRIMARY KEY,
+     email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+     name TEXT NOT NULL DEFAULT '',
+     password_hash TEXT,
+     is_platform_admin INTEGER NOT NULL DEFAULT 0,
+     webauthn_id TEXT NOT NULL UNIQUE,
+     totp_secret TEXT,
+     totp_last_step INTEGER NOT NULL DEFAULT 0,
+     disabled INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     last_login_at TEXT
+   )`,
+  `CREATE TABLE memberships (
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     org_id INTEGER NOT NULL REFERENCES organisations(id) ON DELETE CASCADE,
+     role TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (user_id, org_id)
+   )`,
+  `CREATE TABLE passkeys (
+     id TEXT PRIMARY KEY,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     public_key BLOB NOT NULL,
+     counter INTEGER NOT NULL DEFAULT 0,
+     transports TEXT NOT NULL DEFAULT '[]',
+     name TEXT NOT NULL DEFAULT 'Passkey',
+     backed_up INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     last_used_at TEXT
+   )`,
+  `CREATE TABLE recovery_codes (
+     id INTEGER PRIMARY KEY,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     code_hash TEXT NOT NULL,
+     used_at TEXT
+   )`,
+  `CREATE TABLE sessions (
+     id TEXT PRIMARY KEY,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     stage TEXT NOT NULL,
+     mfa_attempts INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     last_seen_at TEXT NOT NULL,
+     ip TEXT NOT NULL DEFAULT '',
+     user_agent TEXT NOT NULL DEFAULT ''
+   )`,
+  `CREATE INDEX sessions_user ON sessions (user_id)`,
+  `CREATE TABLE tokens (
+     id TEXT PRIMARY KEY,
+     kind TEXT NOT NULL,
+     email TEXT NOT NULL DEFAULT '',
+     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+     org_id INTEGER REFERENCES organisations(id) ON DELETE CASCADE,
+     role TEXT NOT NULL DEFAULT '',
+     created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+     created_at TEXT NOT NULL,
+     expires_at TEXT NOT NULL,
+     used_at TEXT
+   )`,
+  `CREATE TABLE audit_log (
+     id INTEGER PRIMARY KEY,
+     created_at TEXT NOT NULL,
+     user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+     user_email TEXT NOT NULL DEFAULT '',
+     org_id INTEGER REFERENCES organisations(id) ON DELETE CASCADE,
+     site_id INTEGER,
+     action TEXT NOT NULL,
+     detail TEXT NOT NULL DEFAULT '',
+     ip TEXT NOT NULL DEFAULT ''
+   )`,
+  `CREATE INDEX audit_org_created ON audit_log (org_id, created_at)`,
+  `ALTER TABLE sites ADD COLUMN org_id INTEGER REFERENCES organisations(id) ON DELETE CASCADE`,
+  // Sites created before accounts existed go into one organisation.
+  `INSERT INTO organisations (name, created_at) SELECT 'My sites', datetime('now') WHERE EXISTS (SELECT 1 FROM sites);
+   UPDATE sites SET org_id = (SELECT MIN(id) FROM organisations) WHERE org_id IS NULL`,
 ];
 
 export type Db = ReturnType<typeof openDb>;
@@ -89,7 +174,9 @@ export function openDb(file = join(config.dataDir, 'opencookie.sqlite')) {
     db.exec(MIGRATIONS[i]!);
     db.exec(`PRAGMA user_version = ${i + 1}`);
   }
-  return repo(db);
+  const sites = repo(db);
+  const acc = accounts(db);
+  return Object.assign(sites, acc);
 }
 
 const now = () => new Date().toISOString();
@@ -103,12 +190,13 @@ const j = <T>(s: unknown, fallback: T): T => {
 
 type Row = Record<string, unknown>;
 
-const DEFAULT_THEME = { primary: '#1f4fd1', background: '#ffffff', text: '#1a1a1a', position: 'bottom' as const };
+const DEFAULT_THEME = { primary: '#1a1a1a', background: '#ffffff', text: '#1a1a1a', position: 'bottom' as const };
 
 function toSite(r: Row): Site {
   return {
     id: Number(r.id),
     key: String(r.key),
+    orgId: r.org_id === null || r.org_id === undefined ? null : Number(r.org_id),
     name: String(r.name),
     domain: String(r.domain),
     extraDomains: j(r.extra_domains, []),
@@ -182,7 +270,7 @@ function toConsent(r: Row): ConsentRecord {
   };
 }
 
-export type SiteInput = Partial<Omit<Site, 'id' | 'key' | 'createdAt' | 'updatedAt' | 'policyVersion'>>;
+export type SiteInput = Partial<Omit<Site, 'id' | 'key' | 'createdAt' | 'updatedAt' | 'policyVersion' | 'orgId'>>;
 
 export interface ObservedCookie {
   name: string;
@@ -207,6 +295,10 @@ function repo(db: DatabaseSync) {
     listSites(): Site[] {
       return (db.prepare('SELECT * FROM sites ORDER BY name').all() as Row[]).map(toSite);
     },
+    listSitesInOrgs(orgIds: number[]): Site[] {
+      if (!orgIds.length) return [];
+      return (db.prepare(`SELECT * FROM sites WHERE org_id IN (${orgIds.map(() => '?').join(',')}) ORDER BY name`).all(...orgIds) as Row[]).map(toSite);
+    },
     getSite(id: number): Site | null {
       const r = db.prepare('SELECT * FROM sites WHERE id = ?').get(id) as Row | undefined;
       return r ? toSite(r) : null;
@@ -215,14 +307,14 @@ function repo(db: DatabaseSync) {
       const r = db.prepare('SELECT * FROM sites WHERE key = ?').get(key) as Row | undefined;
       return r ? toSite(r) : null;
     },
-    createSite(input: SiteInput & { name: string; domain: string }): Site {
+    createSite(orgId: number, input: SiteInput & { name: string; domain: string }): Site {
       const key = randomBytes(9).toString('base64url');
       const t = now();
       const r = db
         .prepare(
-          `INSERT INTO sites (key, name, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?) RETURNING id`,
+          `INSERT INTO sites (key, org_id, name, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
         )
-        .get(key, input.name, normaliseDomain(input.domain), t, t) as Row;
+        .get(key, orgId, input.name, normaliseDomain(input.domain), t, t) as Row;
       return this.updateSite(Number(r.id), input)!;
     },
     updateSite(id: number, input: SiteInput): Site | null {
@@ -381,6 +473,13 @@ function repo(db: DatabaseSync) {
     consentStats(siteId: number, sinceIso: string): Record<string, number> {
       const rows = db.prepare('SELECT action, COUNT(*) AS n FROM consents WHERE site_id=? AND created_at>=? GROUP BY action').all(siteId, sinceIso) as Row[];
       return Object.fromEntries(rows.map((r) => [String(r.action), Number(r.n)]));
+    },
+    /** Consent choices per site, day and action since a date (for the statistics pages). */
+    consentDaily(siteIds: number[] | null, sinceIso: string): { siteId: number; day: string; action: string; n: number }[] {
+      if (siteIds && !siteIds.length) return [];
+      const inList = siteIds ? ` AND site_id IN (${siteIds.map(() => '?').join(',')})` : '';
+      return (db.prepare(`SELECT site_id, substr(created_at, 1, 10) AS day, action, COUNT(*) AS n FROM consents WHERE created_at >= ?${inList} GROUP BY 1, 2, 3`).all(sinceIso, ...(siteIds ?? [])) as Row[])
+        .map((r) => ({ siteId: Number(r.site_id), day: String(r.day), action: String(r.action), n: Number(r.n) }));
     },
     /** Deletes consent records older than the rule pack's retention period. */
     purgeConsents(siteId: number, olderThanIso: string): number {

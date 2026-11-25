@@ -83,7 +83,7 @@ test('every template has every key filled in', () => {
 
 test('compliance flags pre-consent cookies but respects confirmed exemptions', () => {
   const site = {
-    id: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'nl', locales: ['nl'],
+    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'nl', locales: ['nl'],
     privacyPolicyUrl: 'https://example.nl/cookies', contact: 'privacy@example.nl', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;

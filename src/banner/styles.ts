@@ -23,7 +23,17 @@ export function css(t: SiteTheme): string {
   box-shadow: 0 4px 32px rgba(0,0,0,.25); border-radius: 12px; padding: 20px;
   max-height: calc(100vh - 32px); overflow: auto;
 }
-.oc-pos-bottom { left: 16px; right: 16px; bottom: 16px; max-width: 960px; margin: 0 auto; }
+/* Bar: full width, flush with the bottom edge, one row on wide screens. */
+.oc-pos-bottom { left: 0; right: 0; bottom: 0; border-radius: 0; padding: 16px 24px; max-height: 70vh; box-shadow: 0 -2px 16px rgba(0,0,0,.15); }
+.oc-pos-bottom .oc-inner { display: flex; align-items: center; gap: 24px; max-width: 1200px; margin: 0 auto; }
+.oc-pos-bottom .oc-text { flex: 1 1 auto; min-width: 0; }
+.oc-pos-bottom h2 { font-size: 16px; margin: 0 0 2px; }
+.oc-pos-bottom #oc-body { margin: 0; font-size: 14px; }
+.oc-pos-bottom .oc-actions { flex: 0 0 auto; flex-wrap: nowrap; align-items: center; margin: 0; }
+.oc-pos-bottom .oc-btn { flex: 0 0 auto; padding: 8px 20px; }
+.oc-textlink { font: inherit; font-size: 14px; background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; min-height: 44px; padding: 0 8px; white-space: nowrap; }
+.oc-banner:focus { outline: none; }
+.oc-textlink:focus-visible { outline: 3px solid ${t.primary}; outline-offset: 2px; }
 .oc-pos-bottom-left { left: 16px; bottom: 16px; max-width: 440px; }
 .oc-pos-center { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 32px)); }
 .oc h2 { font-size: 18px; margin: 0 0 8px; line-height: 1.3; }
@@ -71,5 +81,12 @@ export function css(t: SiteTheme): string {
 .oc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .oc-switch span, .oc-switch span::after { transition: none; } }
 @media (max-width: 520px) { .oc-banner { left: 8px; right: 8px; bottom: 8px; padding: 16px; } .oc-btn { flex-basis: 100%; } }
+@media (max-width: 760px) {
+  .oc-pos-bottom { left: 0; right: 0; bottom: 0; padding: 16px; }
+  .oc-pos-bottom .oc-inner { flex-direction: column; align-items: stretch; gap: 12px; }
+  .oc-pos-bottom .oc-actions { flex-wrap: wrap; }
+  .oc-pos-bottom .oc-btn { flex: 1 1 0; }
+  .oc-pos-bottom .oc-textlink { flex-basis: 100%; }
+}
 `;
 }

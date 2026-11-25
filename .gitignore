@@ -3,3 +3,4 @@ dist/
 data/*.sqlite*
 data/open-cookie-database.json
 .env
+data/secret.key

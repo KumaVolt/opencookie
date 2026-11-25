@@ -13,6 +13,8 @@ export interface Site {
   id: number;
   /** Public identifier used in the embed snippet. */
   key: string;
+  /** Organisation (client) that owns the site. */
+  orgId: number | null;
   name: string;
   /** Primary hostname, e.g. "example.nl". Subdomains are allowed automatically. */
   domain: string;
