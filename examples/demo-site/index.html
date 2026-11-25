@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <!-- 1. OpenCookie: first element in <head>, no async/defer. Replace the URL with the one from your admin. -->
+  <script src="http://localhost:8080/s/YOUR_SITE_KEY/banner.js"></script>
+  <title>Demo shop</title>
+
+  <!-- A necessary cookie: allowed before consent. -->
+  <script>document.cookie = 'PHPSESSID=abc123; path=/';</script>
+
+  <!-- A hard-coded tracker that was NOT tagged: the scanner reports it as set before consent. -->
+  <script>document.cookie = '_fbp=fb.1.123.456; path=/; max-age=7776000';</script>
+  <script>document.cookie = 'mystery_tracker=1; path=/; max-age=31536000';</script>
+
+  <!-- Correctly tagged scripts: only run after consent for their category. -->
+  <script type="text/plain" data-oc-category="statistics">
+    document.cookie = '_ga=GA1.1.111.222; path=/; max-age=63072000';
+    document.cookie = '_ga_ABC123=GS1.1.1; path=/; max-age=63072000';
+    localStorage.setItem('_hjSessionUser_42', '1');
+  </script>
+  <script type="text/plain" data-oc-category="marketing">
+    document.cookie = '_gcl_au=1.1.333; path=/; max-age=7776000';
+  </script>
+</head>
+<body>
+  <h1>Demo shop</h1>
+  <p><a href="cookies.html">Cookieverklaring</a> · <a href="#" data-oc-open>Cookie-instellingen</a></p>
+</body>
+</html>
