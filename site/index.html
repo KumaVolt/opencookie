@@ -139,13 +139,25 @@
     .mcp h3 { margin: 0 0 8px; font-size: 20px; }
     .mcp p { color: var(--muted); margin: 0 0 16px; }
 
+    .options { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .option { border: 1px solid var(--line); border-radius: 12px; padding: 28px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .option h3, .then h3 { margin: 0; font-size: 20px; letter-spacing: -0.01em; }
+    .option p, .then p { margin: 0; color: var(--muted); font-size: 16px; }
+    .option code, .then p code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size: 14px; }
+    .option pre code, .then pre code { background: none; padding: 0; font-size: 14px; }
+    .option .prompt { background: var(--panel); color: var(--ink); border-left: 4px solid var(--biscuit); border-radius: 6px; padding: 14px 16px; font-size: 15px; }
+    .copy { align-self: flex-start; height: 40px; padding: 0 18px; border-radius: 999px; border: 2px solid var(--ink); background: transparent; color: var(--ink); font: 600 15px/1 inherit; font-family: inherit; cursor: pointer; }
+    .copy:hover { background: var(--panel); }
+    .then { margin-top: 40px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
+    .then .note { margin-top: 4px; font-size: 14px; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
     footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 15px; }
     footer .wrap { display: flex; gap: 24px; justify-content: space-between; flex-wrap: wrap; }
     footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
 
     @media (max-width: 880px) {
       .hero { padding: 48px 0 64px; }
-      .hero .wrap, .split { grid-template-columns: 1fr; gap: 40px; }
+      .hero .wrap, .split, .options { grid-template-columns: 1fr; gap: 40px; }
       .receipt { transform: none; }
       .features { grid-template-columns: 1fr 1fr; }
       section { padding: 64px 0; }
@@ -255,37 +267,29 @@
     </section>
 
     <section id="install">
-      <div class="wrap split">
-        <div>
-          <h2 class="title">Run your own</h2>
-          <p class="intro">You need Docker, a domain for the consent server and HTTPS in front of it.</p>
-          <ol class="steps">
-            <li>
-              <h3>Start the server</h3>
-              <pre><code>git clone https://github.com/KumaVolt/opencookie.git
-cd opencookie
-cp .env.example .env   <span class="c"># PUBLIC_URL, SETUP_KEY, SECRET</span>
+      <div class="wrap">
+        <h2 class="title">Run your own</h2>
+        <p class="intro">Pick one. Either way you need a server with Docker and a domain for OpenCookie, such as consent.yoursite.com.</p>
+        <div class="options">
+          <div class="option">
+            <h3>With Docker</h3>
+            <pre><code>git clone https://github.com/KumaVolt/opencookie.git
+cd opencookie && cp .env.example .env
 docker compose up -d</code></pre>
-            </li>
-            <li>
-              <h3>Create the first admin</h3>
-              <p>Open <code>/admin/</code> on your domain and enter the setup key. Then add a client and a site.</p>
-            </li>
-            <li>
-              <h3>Add one line to your site</h3>
-              <p>First in the <code>&lt;head&gt;</code> of every page, without <code>async</code> or <code>defer</code>:</p>
-              <pre><code>&lt;script src="https://consent.example.com/s/SITE_KEY/banner.js"&gt;&lt;/script&gt;</code></pre>
-            </li>
-          </ol>
-        </div>
-        <div>
-          <div class="mcp">
-            <h3>Works with your AI assistant</h3>
-            <p>OpenCookie has an MCP server. Create an access token under Your account, and Claude Code or another MCP client can list your sites, run scans, check compliance and read consent statistics, with the same rights as you.</p>
-            <pre><code>claude mcp add --transport http opencookie \
-  https://consent.example.com/mcp \
-  --header "Authorization: Bearer oc_pat_…"</code></pre>
+            <p>Set <code>PUBLIC_URL</code> and <code>SETUP_KEY</code> in <code>.env</code> first. Then open <code>/admin/</code> on your domain and enter the setup key.</p>
           </div>
+          <div class="option">
+            <h3>With your AI assistant</h3>
+            <p class="prompt" id="ai-prompt">Install OpenCookie (github.com/KumaVolt/opencookie) on this server with Docker Compose. Serve it on https://consent.yoursite.com with HTTPS, fill in PUBLIC_URL, SETUP_KEY and SECRET in .env, and tell me the setup key when it runs.</p>
+            <button class="copy" type="button" data-copy="ai-prompt">Copy prompt</button>
+            <p>Paste it into Claude Code, Codex or another coding assistant on your server. Change the domain to yours.</p>
+          </div>
+        </div>
+        <div class="then">
+          <h3>Then add one line to your site</h3>
+          <p>Add a site in the admin. It shows a line like this; put it first in the <code>&lt;head&gt;</code> of every page.</p>
+          <pre><code>&lt;script src="https://consent.yoursite.com/s/SITE_KEY/banner.js"&gt;&lt;/script&gt;</code></pre>
+          <p class="note">Your AI assistant can also manage your sites afterwards: OpenCookie has an MCP server. Create an access token under Your account to connect it.</p>
         </div>
       </div>
     </section>
@@ -300,5 +304,13 @@ docker compose up -d</code></pre>
       </nav>
     </div>
   </footer>
+  <script>
+    document.querySelectorAll('[data-copy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var t = document.getElementById(b.getAttribute('data-copy')).textContent;
+        (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { b.textContent = 'Copied'; }, function () { b.textContent = 'Select the text to copy'; });
+      });
+    });
+  </script>
 </body>
 </html>
