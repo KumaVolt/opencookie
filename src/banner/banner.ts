@@ -60,6 +60,12 @@ const COOKIE = 'oc_consent';
 (function main() {
   const boot = window.__OC_BOOT;
   if (!boot || window.OpenCookie) return;
+  // Sandboxed frames have no cookie access; consent cannot be stored there, so stay out.
+  try {
+    void document.cookie;
+  } catch {
+    return;
+  }
 
   const gpc = boot.honorGpc && navigator.globalPrivacyControl === true;
   let stored = readStored();

@@ -87,6 +87,8 @@ export function Switcher({ orgs, current, allowAll, onSelect, footer }: {
     ...orgs.map((o) => ({ value: o.id, label: o.name, sub: o.siteCount !== undefined ? `${o.siteCount} site${o.siteCount === 1 ? '' : 's'}` : undefined })),
   ].filter((i) => !q || i.label.toLowerCase().includes(q.toLowerCase()));
 
+  const curOrg = orgs.find((o) => o.id === current);
+  const curSub = curOrg?.siteCount !== undefined ? `${curOrg.siteCount} site${curOrg.siteCount === 1 ? '' : 's'}` : 'Client';
   const cur = current === 'all' ? { label: 'All clients', all: true } : { label: orgs.find((o) => o.id === current)?.name ?? 'Choose a client', all: false };
 
   useEffect(() => {
@@ -111,12 +113,14 @@ export function Switcher({ orgs, current, allowAll, onSelect, footer }: {
     else if (e.key === 'Enter' && items[active]) { e.preventDefault(); choose(items[active]!.value); }
   };
 
+  // One client and nothing else to offer: show its name, not a dropdown.
+  const fixed = !allowAll && orgs.length <= 1 && !footer;
   return (
     <div class="switcher" ref={root}>
-      <button ref={button} type="button" class="switcher-btn" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button ref={button} type="button" class="switcher-btn" disabled={fixed} aria-haspopup={fixed ? undefined : 'listbox'} aria-expanded={fixed ? undefined : open} onClick={() => setOpen(!open)}>
         <OrgTile name={cur.label} all={cur.all} />
-        <span class="switcher-label"><span class="switcher-kicker">Client</span>{cur.label}</span>
-        <Icon name="chevrons" size={16} />
+        <span class="switcher-label">{cur.label}<span class="switcher-kicker">{curSub}</span></span>
+        {!fixed && <Icon name="chevrons" size={16} />}
       </button>
       {open && (
         <div class="switcher-pop" onKeyDown={onKey}>

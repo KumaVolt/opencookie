@@ -9,7 +9,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import type { Site } from '../core/types.ts';
-import { isRole, roleAtLeast, type Role, type Session, type User } from './accounts.ts';
+import { isRole, roleAtLeast, type ApiToken, type Role, type Session, type User } from './accounts.ts';
 import { config } from './config.ts';
 import type { Db } from './db.ts';
 import { mailEnabled, sendMail } from './mail.ts';
@@ -33,6 +33,8 @@ declare module 'fastify' {
   interface FastifyRequest {
     user: User | null;
     authSession: Session | null;
+    /** Set when the request was made with a personal access token instead of a login session. */
+    apiToken: ApiToken | null;
   }
 }
 
@@ -74,9 +76,27 @@ class Pending<T> {
   }
 }
 
+/**
+ * What a personal access token may do. Reading is allowed except account security and user management.
+ * Writing is a short allow-list of site work; anything about logins, people or deleting stays in the dashboard.
+ */
+const TOKEN_WRITES: [string, RegExp][] = [
+  ['POST', /^\/sites$/],
+  ['PUT', /^\/sites\/\d+$/],
+  ['POST', /^\/sites\/\d+\/cookies$/],
+  ['PUT', /^\/sites\/\d+\/cookies\/\d+$/],
+  ['POST', /^\/sites\/\d+\/scans$/],
+];
+export function tokenAllowed(method: string, url: string, canWrite: boolean): boolean {
+  const path = url.split('?')[0]!.replace(/^\/admin\/api/, '');
+  if (method === 'GET' || method === 'HEAD') return path === '/me' || !/^\/(auth|me|users)(\/|$)/.test(path);
+  return canWrite && TOKEN_WRITES.some(([m, re]) => m === method && re.test(path));
+}
+
 export function registerAuth(app: FastifyInstance, db: Db) {
   app.decorateRequest('user', null);
   app.decorateRequest('authSession', null);
+  app.decorateRequest('apiToken', null);
 
   // First-run setup key: from SETUP_KEY/ADMIN_PASSWORD, or generated and printed once.
   let setupKey = config.setupKey;
@@ -160,8 +180,31 @@ export function registerAuth(app: FastifyInstance, db: Db) {
 
   // ------------------------------------------------------------- the gate
   const ENROLMENT_ALLOWED = /^\/admin\/api\/(me(\/|$|\?)|meta(\?|$))/;
+  const tokenLimiter = new RateLimiter(600, 60_000);
+  const authFailLimiter = new RateLimiter(30, 15 * 60_000);
   app.addHook('onRequest', async (req, reply) => {
     if (!req.url.startsWith('/admin/api/')) return;
+    const bearer = /^Bearer\s+(oc_pat_[\w-]+)$/i.exec(String(req.headers.authorization ?? ''))?.[1];
+    if (req.headers.authorization) {
+      // Personal access token: no cookies involved, so no CSRF header needed.
+      if (authFailLimiter.blocked(req.ip)) return reply.code(429).send({ error: 'Too many attempts. Try again later.' });
+      const t = bearer ? db.getApiTokenByHash(sha256(bearer)) : null;
+      const user = t ? db.getUser(t.userId) : null;
+      if (!t || !user || user.disabled) {
+        authFailLimiter.hit(req.ip);
+        return reply.code(401).header('WWW-Authenticate', 'Bearer realm="OpenCookie"').send({ error: 'Invalid or expired access token', code: 'TOKEN_INVALID' });
+      }
+      if (!tokenLimiter.hit(`t${t.id}`)) return reply.code(429).send({ error: 'Too many requests for this token. Slow down.' });
+      if (mustEnroll(user)) return reply.code(403).send({ error: 'Set up two-factor authentication first.', code: 'MFA_ENROLMENT_REQUIRED' });
+      if (!tokenAllowed(req.method, req.url, t.canWrite)) {
+        return reply.code(403).send({ error: t.canWrite ? 'Access tokens cannot do this. Log in to the dashboard instead.' : 'This token is read-only.', code: 'TOKEN_SCOPE' });
+      }
+      req.user = user;
+      req.apiToken = t;
+      req.authSession = { id: `token:${t.id}`, userId: user.id, stage: 'full', createdAt: t.createdAt, expiresAt: t.expiresAt ?? '', lastSeenAt: new Date().toISOString(), ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '') } as Session;
+      if (!t.lastUsedAt || Date.now() - Date.parse(t.lastUsedAt) > 60_000) db.touchApiToken(t.id, req.ip);
+      return;
+    }
     // CSRF: every state-changing request must come from the admin page (custom header + SameSite=Strict cookie).
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers['x-requested-with'] !== 'opencookie-admin') {
       return reply.code(403).send({ error: 'Missing CSRF header' });
@@ -431,6 +474,8 @@ export function registerAuth(app: FastifyInstance, db: Db) {
     return {
       user: { id: u.id, email: u.email, name: u.name, isPlatformAdmin: u.isPlatformAdmin, createdAt: u.createdAt, lastLoginAt: u.lastLoginAt, avatarUrl: avatarUrl(u.email) },
       memberships: db.memberships(u.id),
+      /** null in the dashboard; true/false when called with an access token. */
+      tokenCanWrite: req.apiToken ? req.apiToken.canWrite : null,
       totpEnabled: u.totpEnabled,
       passkeys: db.listPasskeys(u.id).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, lastUsedAt: p.lastUsedAt, backedUp: p.backedUp })),
       recoveryCodesLeft: db.recoveryCodesLeft(u.id),
@@ -576,6 +621,27 @@ export function registerAuth(app: FastifyInstance, db: Db) {
     db.deleteUserSessions(req.user!.id, req.authSession!.id);
     audit(req, 'sessions_revoked', { detail: 'all other sessions' });
     return accountView(req);
+  });
+
+  // ======================================================= personal access tokens
+  const tokenView = (t: ApiToken) => ({ id: t.id, name: t.name, prefix: t.prefix, canWrite: t.canWrite, createdAt: t.createdAt, expiresAt: t.expiresAt, lastUsedAt: t.lastUsedAt, lastUsedIp: t.lastUsedIp });
+  app.get('/admin/api/me/tokens', async (req) => db.listApiTokens(req.user!.id).map(tokenView));
+  app.post('/admin/api/me/tokens', async (req) => {
+    const b = body(req);
+    await confirmIdentity(req, b.password);
+    const name = String(b.name ?? '').trim().slice(0, 80);
+    if (!name) fail(400, 'Give the token a name, e.g. "Claude on my laptop".');
+    if (db.listApiTokens(req.user!.id).length >= 25) fail(400, 'You have 25 tokens. Delete some before making more.');
+    const days = Number(b.expiresDays);
+    const expiresAt = days > 0 ? new Date(Date.now() + Math.min(days, 366) * 86400_000).toISOString() : null;
+    const token = `oc_pat_${randomToken(32)}`;
+    const t = db.createApiToken({ userId: req.user!.id, name, hash: sha256(token), prefix: token.slice(0, 14), canWrite: b.canWrite === true, expiresAt });
+    audit(req, 'token_created', { detail: `${name} (${t.canWrite ? 'read and write' : 'read only'})` });
+    return { token, ...tokenView(t) };
+  });
+  app.delete<{ Params: { id: string } }>('/admin/api/me/tokens/:id', async (req) => {
+    if (db.deleteApiToken(req.user!.id, Number(req.params.id))) audit(req, 'token_revoked', { detail: `token ${req.params.id}` });
+    return { ok: true };
   });
 
   // ======================================================= organisations (clients)

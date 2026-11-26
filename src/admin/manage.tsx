@@ -154,7 +154,8 @@ export function StatsView({ orgId, title }: { orgId?: number; title?: string }) 
 // ==================================================================== clients
 interface OrgRow { id: number; name: string; require2fa: boolean; role: string | null; memberCount: number; siteCount: number }
 
-export function ClientsPage({ me, onOpen, onChanged }: { me: Me; onOpen: (id: number) => void; onChanged: () => void }) {
+export function ClientsPage({ me, cookieDbEntries, onOpen, onChanged }: { me: Me; cookieDbEntries: number; onOpen: (id: number) => void; onChanged: () => void }) {
+  const [updating, setUpdating] = useState(false);
   const [orgs, setOrgs] = useState<OrgRow[] | null>(null);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
@@ -169,10 +170,16 @@ export function ClientsPage({ me, onOpen, onChanged }: { me: Me; onOpen: (id: nu
     <>
       <div class="pagehead">
         <div>
-          <h1>Clients</h1>
-          <p class="muted">Each client has its own sites, team and consent logs. People only see the clients they belong to.</p>
+          <h1>All clients</h1>
+          <p class="muted">Each client has its own sites, team and logins, and only sees its own. Pick one to work on it.</p>
         </div>
-        {me.user.isPlatformAdmin && !adding && <button class="primary" onClick={() => setAdding(true)}><Icon name="plus" size={16} /> Add client</button>}
+        <div class="row" style="flex:0 0 auto">
+          <button disabled={updating} title={`${cookieDbEntries.toLocaleString()} cookies known`} onClick={() => {
+            setUpdating(true);
+            api('POST', '/cookie-db/update').then(() => location.reload()).finally(() => setUpdating(false));
+          }}>{updating ? 'Updating…' : 'Update cookie database'}</button>
+          {!adding && <button class="primary" onClick={() => setAdding(true)}><Icon name="plus" size={16} /> Add client</button>}
+        </div>
       </div>
       {adding && (
         <div class="panel">
@@ -226,6 +233,7 @@ export function ClientsPage({ me, onOpen, onChanged }: { me: Me; onOpen: (id: nu
           </table>
         </div>
       )}
+      {orgs && orgs.length > 0 && <><h2>Consent across all clients</h2><StatsView /></>}
       {orgs?.length === 0 && !adding && (
         <div class="panel empty-state">
           <h2>No clients yet</h2>
@@ -484,6 +492,7 @@ const ACTION_LABEL: Record<string, string> = {
   '2fa_totp_enabled': 'Authenticator app turned on', '2fa_totp_disabled': 'Authenticator app turned off', '2fa_reset_by_admin': '2FA reset by admin',
   passkey_added: 'Passkey added', passkey_removed: 'Passkey removed', recovery_codes_regenerated: 'New recovery codes',
   password_changed: 'Password changed', password_reset: 'Password reset', password_reset_requested: 'Password reset requested', password_reset_link_created: 'Reset link created',
+  token_created: 'Access token created', token_revoked: 'Access token deleted',
   session_revoked: 'Session signed out', sessions_revoked: 'Other sessions signed out',
   org_created: 'Client created', org_updated: 'Client settings changed', org_deleted: 'Client deleted',
   invite_created: 'Invitation sent', invite_accepted: 'Invitation accepted', invite_revoked: 'Invitation revoked',

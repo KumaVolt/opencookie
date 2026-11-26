@@ -161,6 +161,20 @@ const MIGRATIONS = [
   // Sites created before accounts existed go into one organisation.
   `INSERT INTO organisations (name, created_at) SELECT 'My sites', datetime('now') WHERE EXISTS (SELECT 1 FROM sites);
    UPDATE sites SET org_id = (SELECT MIN(id) FROM organisations) WHERE org_id IS NULL`,
+  // Personal access tokens for the API and MCP. Only a hash is stored.
+  `CREATE TABLE api_tokens (
+     id INTEGER PRIMARY KEY,
+     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     name TEXT NOT NULL,
+     token_hash TEXT NOT NULL UNIQUE,
+     prefix TEXT NOT NULL,
+     can_write INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     expires_at TEXT,
+     last_used_at TEXT,
+     last_used_ip TEXT NOT NULL DEFAULT ''
+   )`,
+  `CREATE INDEX api_tokens_user ON api_tokens (user_id)`,
 ];
 
 export type Db = ReturnType<typeof openDb>;

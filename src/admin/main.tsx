@@ -45,7 +45,7 @@ const SCOPE_KEY = 'oc-admin-scope';
 const readScope = (): Scope | null => {
   try {
     const v = localStorage.getItem(SCOPE_KEY);
-    return v === 'all' ? 'all' : v ? Number(v) : null;
+    return v && v !== 'all' ? Number(v) : null;
   } catch {
     return null;
   }
@@ -72,8 +72,7 @@ function App() {
     setOrgs(list);
     setOrgsLoaded(true);
     const saved = readScope();
-    const valid = (v: Scope | null) => v !== null && (v === 'all' ? m.user.isPlatformAdmin : list.some((o) => o.id === v));
-    setScopeState(valid(saved) ? saved : m.user.isPlatformAdmin ? 'all' : list[0]?.id ?? null);
+    setScopeState(saved !== null && list.some((o) => o.id === saved) ? saved : list[0]?.id ?? null);
   }, []);
 
   const boot = useCallback(async () => {
@@ -149,12 +148,10 @@ function App() {
   const site = path.match(/^\/sites\/(\d+)(?:\/(\w+))?/);
 
   const nav: [string, string, string][] = me.mustEnroll2fa ? [] : [
-    ['/', 'Overview', 'dashboard'],
-    ['/sites', 'Sites', 'sites'],
-    ...(org ? [['/team', 'Team', 'team'] as [string, string, string]] : []),
-    ...(org && orgRole === 'owner' ? [['/client-activity', 'Activity', 'activity'], ['/client-settings', 'Client settings', 'settings']] as [string, string, string][] : []),
+    ...(org ? [['/', 'Overview', 'dashboard'], ['/sites', 'Sites', 'sites'], ['/team', 'Team', 'team']] as [string, string, string][] : []),
+    ...(org && orgRole === 'owner' ? [['/client-activity', 'Activity', 'activity'], ['/client-settings', 'Settings', 'settings']] as [string, string, string][] : []),
   ];
-  const platformNav: [string, string, string][] = platform && !me.mustEnroll2fa ? [['/clients', 'Clients', 'clients'], ['/users', 'Users', 'users'], ['/activity', 'Activity log', 'activity']] : [];
+  const platformNav: [string, string, string][] = platform && !me.mustEnroll2fa ? [['/clients', 'All clients', 'clients'], ['/users', 'Users', 'users'], ['/activity', 'Activity log', 'activity']] : [];
   const isActive = (href: string) => (href === '/' ? path === '/' : path === href || (href === '/sites' && !!site));
 
   const canAddSites = platform || orgs.some((o) => o.role === 'owner');
@@ -170,33 +167,34 @@ function App() {
   }
   if (me.mustEnroll2fa || path.startsWith('/account')) page = <AccountPage me={me} reload={reloadMe} tab={path.split('/')[2] ?? 'security'} />;
   else if (!meta) page = <p class="muted">Loading…</p>;
-  else if (site) page = <SitePage id={Number(site[1])} tab={site[2] ?? 'overview'} meta={meta} onScope={(id) => { if (id && id !== scope && scope !== 'all') setScope(id); }} />;
+  else if (site) page = <SitePage id={Number(site[1])} tab={site[2] ?? 'overview'} meta={meta} onScope={(id) => { if (id && id !== scope) setScope(id); }} />;
   else if (path === '/sites') page = <SitesPage meta={meta} me={me} scope={scope} org={org} orgRole={orgRole} />;
   else if (path === '/team' && org) page = <ClientSection orgId={org.id} section="team" me={me} onChanged={() => loadOrgs(me)} />;
   else if (path === '/client-activity' && org) page = <ClientSection orgId={org.id} section="activity" me={me} onChanged={() => loadOrgs(me)} />;
   else if (path === '/client-settings' && org) page = <ClientSection orgId={org.id} section="settings" me={me} onChanged={() => loadOrgs(me)} />;
-  else if (path === '/clients' && platform) page = <ClientsPage me={me} onOpen={(id) => { setScope(id); location.hash = '#/'; }} onChanged={() => loadOrgs(me)} />;
+  else if (path === '/clients' && platform) page = <ClientsPage me={me} cookieDbEntries={meta.cookieDb.entries} onOpen={(id) => { setScope(id); location.hash = '#/'; }} onChanged={() => loadOrgs(me)} />;
   else if (path === '/users' && platform) page = <UsersPage me={me} />;
   else if (path === '/activity' && platform) page = <><div class="pagehead"><div><h1>Activity log</h1><p class="muted">Logins, security changes and site changes across all clients. Kept for 2 years.</p></div></div><AuditView /></>;
   else if (scope === null) page = <div class="panel empty-state"><h1>Welcome</h1><p>{platform ? 'Set up your first client and site. It takes about two minutes.' : 'You are not part of any client yet. Ask the person who invited you to check your invitation.'}</p>{platform && <a class="btn primary" href="#/welcome">Start setup</a>}</div>;
-  else page = <><div class="pagehead"><div><h1>{org ? org.name : 'All clients'}</h1><p class="muted">{org ? `Consent choices and compliance for this client's sites.` : 'Consent choices and compliance across every client.'}</p></div></div><StatsView key={String(scope)} orgId={org?.id} /></>;
+  else page = <><div class="pagehead"><div><h1>{org?.name}</h1><p class="muted">Consent choices and compliance for this client's sites.</p></div></div><StatsView key={String(scope)} orgId={org?.id} /></>;
 
   return (
     <div class="shell">
       <aside class="sidebar" data-open={navOpen} aria-label="Main">
         <a href="#/" class="brand"><Mark /> {meta?.appName ?? state.appName}</a>
+        {!me.mustEnroll2fa && (orgs.length > 0 || platform) && <div class="group">Client</div>}
         {!me.mustEnroll2fa && (orgs.length > 0 || platform) && (
           <Switcher
             orgs={orgs}
             current={scope}
-            allowAll={platform}
+            allowAll={false}
             onSelect={(v) => { setScope(v); if (path.startsWith('/team') || path.startsWith('/client-') || site) location.hash = '#/'; }}
-            footer={platform && <a href="#/clients"><Icon name="plus" size={16} /> Add or manage clients</a>}
+            footer={platform && <a href="#/clients"><Icon name="clients" size={16} /> Manage all clients</a>}
           />
         )}
         <nav class="sidenav">
           {nav.map(([href, label, icon]) => <a href={`#${href}`} class={isActive(href) ? 'active' : ''} aria-current={isActive(href) ? 'page' : undefined}><Icon name={icon} /> {label}</a>)}
-          {platformNav.length > 0 && <div class="group">Platform</div>}
+          {platformNav.length > 0 && <div class="group admin">Admin <span>· clients don&apos;t see this</span></div>}
           {platformNav.map(([href, label, icon]) => <a href={`#${href}`} class={isActive(href) ? 'active' : ''} aria-current={isActive(href) ? 'page' : undefined}><Icon name={icon} /> {label}</a>)}
         </nav>
         <div class="grow" />
@@ -225,7 +223,6 @@ function SitesPage({ meta, me, scope, org, orgRole }: { meta: Meta; me: Me; scop
   const [sites, setSites] = useState<SiteRow[] | null>(null);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState(false);
-  const [updating, setUpdating] = useState(false);
   useEffect(() => void api<SiteRow[]>('GET', '/sites').then(setSites), []);
   const shown = sites?.filter((s) => (scope === 'all' || s.orgId === scope) && (!q || `${s.name} ${s.domain} ${s.orgName}`.toLowerCase().includes(q.toLowerCase())));
   return (
@@ -233,13 +230,10 @@ function SitesPage({ meta, me, scope, org, orgRole }: { meta: Meta; me: Me; scop
       <div class="pagehead">
         <div>
           <h1>Sites</h1>
-          <p class="muted">{org ? org.name : 'All clients'} · Cookie database: {meta.cookieDb.entries.toLocaleString()} entries</p>
+          <p class="muted">Sites of {org?.name}. Each site has its own banner, cookie list and consent log.</p>
         </div>
         <div class="row" style="flex:0 0 auto">
-          {me.user.isPlatformAdmin && <button disabled={updating} onClick={() => {
-            setUpdating(true);
-            api('POST', '/cookie-db/update').then(() => location.reload()).finally(() => setUpdating(false));
-          }}>{updating ? 'Updating…' : 'Update cookie database'}</button>}
+
           {org && orgRole === 'owner' && <button class="primary" onClick={() => setAdding(!adding)}><Icon name="plus" size={16} /> Add site</button>}
         </div>
       </div>

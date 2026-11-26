@@ -332,3 +332,12 @@ table.clickable tbody tr:hover td { background: var(--sunken); }
 .colour input::-webkit-color-swatch-wrapper { padding: 2px; }
 .colour input::-webkit-color-swatch { border: 0; border-radius: 50%; }
 .colour input::-moz-color-swatch, .swatch-custom input::-moz-color-swatch { border: 0; border-radius: 50%; }
+
+/* Sidebar groups: "Client" (what a customer sees) and "Admin" (platform only) */
+.sidebar > .group { font-size: 12px; color: var(--side-muted); padding: 10px 10px 6px; }
+.sidenav .group.admin { margin-top: 14px; padding-top: 16px; border-top: 1px solid #2c3430; }
+.sidenav .group span, .sidebar > .group span { opacity: .75; }
+.switcher-btn:disabled { opacity: 1; cursor: default; }
+.switcher-btn:disabled:hover { background: var(--side-hover); }
+.switcher-btn .switcher-label { display: flex; flex-direction: column; font-weight: 600; }
+.pagehead .row { flex-wrap: wrap; } .pagehead .row > * { flex: 0 0 auto; }

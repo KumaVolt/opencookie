@@ -55,7 +55,7 @@ export function SetupWizard({ me, meta, orgs, preferOrg, onDone }: {
   const ownable = orgs.filter((o) => platform || o.role === 'owner');
   const [step, setStep] = useState(platform ? 0 : 1);
   const [orgChoice, setOrgChoice] = useState<number | 'new'>(preferOrg && ownable.some((o) => o.id === preferOrg) ? preferOrg : ownable[0]?.id ?? 'new');
-  const [orgName, setOrgName] = useState(ownable.length ? '' : 'My sites');
+  const [orgName, setOrgName] = useState('');
   const [site, setSite] = useState({ name: '', domain: '' });
   const [pack, setPack] = useState('nl-ap');
   const [layout, setLayout] = useState<'bottom' | 'bottom-left' | 'center'>('bottom');

@@ -329,7 +329,7 @@ function RecoveryCodes({ codes, onClose }: { codes: string[]; onClose: () => voi
 }
 
 export function AccountPage({ me, reload, tab }: { me: Me; reload: () => void; tab: string }) {
-  const t = me.mustEnroll2fa ? 'security' : ['security', 'profile', 'sessions'].includes(tab) ? tab : 'security';
+  const t = me.mustEnroll2fa ? 'security' : ['security', 'profile', 'sessions', 'tokens'].includes(tab) ? tab : 'security';
   const { run, dialog } = useConfirmed();
   const [name, setName] = useState(me.user.name);
   const [pw, setPw] = useState({ current: '', next: '' });
@@ -354,7 +354,7 @@ export function AccountPage({ me, reload, tab }: { me: Me; reload: () => void; t
         <p class="muted">{me.user.email}{me.user.isPlatformAdmin && <> <span class="badge info">Platform admin</span></>}</p></div></div>
       {!me.mustEnroll2fa && (
         <nav class="tabs" aria-label="Account sections">
-          {([['security', 'Sign-in & security'], ['profile', 'Profile'], ['sessions', `Devices (${me.sessions.length})`]] as const).map(([k, label]) => (
+          {([['security', 'Sign-in & security'], ['profile', 'Profile'], ['sessions', `Devices (${me.sessions.length})`], ['tokens', 'Access tokens']] as const).map(([k, label]) => (
             <a href={`#/account/${k}`} class={t === k ? 'active' : ''} aria-current={t === k ? 'page' : undefined}>{label}</a>
           ))}
         </nav>
@@ -486,6 +486,7 @@ export function AccountPage({ me, reload, tab }: { me: Me; reload: () => void; t
           )}
         </>
       )}
+      {t === 'tokens' && <AccessTokens run={run} />}
       {t === 'sessions' && (
         <>
           <section class="panel">
@@ -520,4 +521,82 @@ function guessDeviceName(): string {
   if (/Mac OS X/.test(ua)) return 'Mac';
   if (/Windows/.test(ua)) return 'Windows PC';
   return 'This device';
+}
+
+interface TokenRow { id: number; name: string; prefix: string; canWrite: boolean; createdAt: string; expiresAt: string | null; lastUsedAt: string | null; lastUsedIp: string }
+
+/** Personal access tokens for the API and for AI assistants over MCP. */
+function AccessTokens({ run }: { run: (action: (pw?: string) => Promise<unknown>) => Promise<unknown> }) {
+  const [rows, setRows] = useState<TokenRow[] | null>(null);
+  const [form, setForm] = useState({ name: '', canWrite: false, expiresDays: 90 });
+  const [made, setMade] = useState<(TokenRow & { token: string }) | null>(null);
+  const [err, setErr] = useState('');
+  const [copied, setCopied] = useState('');
+  const load = () => api<TokenRow[]>('GET', '/me/tokens').then(setRows);
+  useEffect(() => void load(), []);
+  const mcpUrl = `${location.origin}/mcp`;
+  const copy = (k: string, v: string) => { void navigator.clipboard?.writeText(v); setCopied(k); };
+  const claudeCode = made ? `claude mcp add --transport http opencookie ${mcpUrl} --header "Authorization: Bearer ${made.token}"` : '';
+  const jsonCfg = made ? JSON.stringify({ mcpServers: { opencookie: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${made.token}` } } } }, null, 2) : '';
+  return (
+    <>
+      <section class="panel">
+        <h2 style="margin-top:0">Access tokens</h2>
+        <p class="muted">Let an AI assistant (over MCP) or your own scripts work with your sites. A token can do what you can do in the clients you belong to, except anything about logins, people or deleting. Treat it like a password.</p>
+        {made ? (
+          <div class="notice">
+            <p><strong>Copy your token now.</strong> It is shown only once.</p>
+            <div class="snippet"><pre>{made.token}</pre><button type="button" onClick={() => copy('token', made.token)}>{copied === 'token' ? 'Copied' : 'Copy'}</button></div>
+            <h3 style="margin-top:16px">Connect Claude Code</h3>
+            <div class="snippet"><pre>{claudeCode}</pre><button type="button" onClick={() => copy('cc', claudeCode)}>{copied === 'cc' ? 'Copied' : 'Copy'}</button></div>
+            <h3 style="margin-top:16px">Other MCP clients (Cursor, VS Code, Windsurf)</h3>
+            <div class="snippet"><pre>{jsonCfg}</pre><button type="button" onClick={() => copy('json', jsonCfg)}>{copied === 'json' ? 'Copied' : 'Copy'}</button></div>
+            <p class="muted">Server address: <code>{mcpUrl}</code>. Clients that only support signing in with OAuth, such as custom connectors on claude.ai, cannot use tokens yet.</p>
+            <button type="button" onClick={() => setMade(null)}>Done</button>
+          </div>
+        ) : (
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            setErr('');
+            run(async (password) => setMade(await api('POST', '/me/tokens', { ...form, password })))
+              .then(() => { setForm({ name: '', canWrite: false, expiresDays: 90 }); void load(); })
+              .catch((x) => setErr(msg(x)));
+          }}>
+            <div class="row">
+              <Field label="Name" hint="Where you will use it."><input required maxLength={80} value={form.name} onInput={(e) => setForm({ ...form, name: e.currentTarget.value })} placeholder="Claude Code on my laptop" /></Field>
+              <Field label="Expires">
+                <select value={form.expiresDays} onChange={(e) => setForm({ ...form, expiresDays: Number(e.currentTarget.value) })}>
+                  <option value={30}>In 30 days</option><option value={90}>In 90 days</option><option value={365}>In 1 year</option><option value={0}>Never</option>
+                </select>
+              </Field>
+            </div>
+            <label class="check"><input type="radio" name="tokenAccess" checked={!form.canWrite} onChange={() => setForm({ ...form, canWrite: false })} />
+              <span><strong>Read only.</strong> See sites, cookies, compliance and statistics.</span></label>
+            <label class="check"><input type="radio" name="tokenAccess" checked={form.canWrite} onChange={() => setForm({ ...form, canWrite: true })} />
+              <span><strong>Read and change.</strong> Also add sites, start scans, change settings and cookies (only where your role allows it).</span></label>
+            {err && <p class="error-text" role="alert">{err}</p>}
+            <button class="primary" type="submit">Create token</button>
+          </form>
+        )}
+      </section>
+      {rows && rows.length > 0 && (
+        <section class="panel flush table-wrap">
+          <table>
+            <thead><tr><th>Name</th><th>Access</th><th>Last used</th><th>Expires</th><th></th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td><strong>{r.name}</strong><div class="muted"><code>{r.prefix}…</code></div></td>
+                  <td>{r.canWrite ? <span class="badge warning">Read and change</span> : <span class="badge">Read only</span>}</td>
+                  <td>{r.lastUsedAt ? <>{fmtDate(r.lastUsedAt)}<div class="muted">{r.lastUsedIp}</div></> : <span class="muted">Never</span>}</td>
+                  <td>{r.expiresAt ? fmtDate(r.expiresAt) : 'Never'}</td>
+                  <td><button class="danger" onClick={() => confirm(`Delete "${r.name}"? Anything using it stops working.`) && api('DELETE', `/me/tokens/${r.id}`).then(load)}>Delete</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+    </>
+  );
 }

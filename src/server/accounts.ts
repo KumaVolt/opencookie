@@ -373,5 +373,40 @@ export function accounts(db: DatabaseSync) {
     purgeAudit(olderThanIso: string): void {
       db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(olderThanIso);
     },
+
+    // ------------------------------------------------- personal access tokens
+    listApiTokens(userId: number): ApiToken[] {
+      return all('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY id DESC', toApiToken, userId);
+    },
+    createApiToken(t: { userId: number; name: string; hash: string; prefix: string; canWrite: boolean; expiresAt: string | null }): ApiToken {
+      const r = db.prepare('INSERT INTO api_tokens (user_id, name, token_hash, prefix, can_write, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+        t.userId, t.name, t.hash, t.prefix, t.canWrite ? 1 : 0, now(), t.expiresAt,
+      );
+      return toApiToken(db.prepare('SELECT * FROM api_tokens WHERE id = ?').get(Number(r.lastInsertRowid)) as Row);
+    },
+    /** A token that exists and has not expired. */
+    getApiTokenByHash(hash: string): ApiToken | null {
+      const r = db.prepare('SELECT * FROM api_tokens WHERE token_hash = ? AND (expires_at IS NULL OR expires_at > ?)').get(hash, now()) as Row | undefined;
+      return r ? toApiToken(r) : null;
+    },
+    touchApiToken(id: number, ip: string): void {
+      db.prepare('UPDATE api_tokens SET last_used_at = ?, last_used_ip = ? WHERE id = ?').run(now(), ip, id);
+    },
+    deleteApiToken(userId: number, id: number): boolean {
+      return Number(db.prepare('DELETE FROM api_tokens WHERE id = ? AND user_id = ?').run(id, userId).changes) > 0;
+    },
+    deleteUserApiTokens(userId: number): void {
+      db.prepare('DELETE FROM api_tokens WHERE user_id = ?').run(userId);
+    },
   };
 }
+
+export interface ApiToken {
+  id: number; userId: number; name: string; prefix: string; canWrite: boolean;
+  createdAt: string; expiresAt: string | null; lastUsedAt: string | null; lastUsedIp: string;
+}
+const toApiToken = (r: Row): ApiToken => ({
+  id: Number(r.id), userId: Number(r.user_id), name: String(r.name), prefix: String(r.prefix), canWrite: Number(r.can_write) === 1,
+  createdAt: String(r.created_at), expiresAt: r.expires_at == null ? null : String(r.expires_at),
+  lastUsedAt: r.last_used_at == null ? null : String(r.last_used_at), lastUsedIp: String(r.last_used_ip),
+});

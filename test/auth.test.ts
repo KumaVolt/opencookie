@@ -166,3 +166,74 @@ test('accounts: setup, 2FA, invites, roles and client separation', async () => {
 
   await app.close();
 });
+
+test('access tokens and MCP: scoped to the user, read-only by default, no account access', async () => {
+  const { app } = await buildServer({ dbFile: ':memory:', logger: false });
+  const admin = client(app);
+  await admin.call('POST', '/auth/setup', { setupKey: 'test-setup-key', email: 'admin@example.nl', name: 'Admin', password: 'sturdy password 1' });
+  const acme = (await admin.call('POST', '/orgs', { name: 'Acme' })).json;
+  const bakery = (await admin.call('POST', '/orgs', { name: 'Bakkerij' })).json;
+  const acmeSite = (await admin.call('POST', '/sites', { orgId: acme.id, name: 'Acme', domain: 'acme.nl' })).json;
+  await admin.call('POST', '/sites', { orgId: bakery.id, name: 'Bakkerij', domain: 'bakkerij.nl' });
+
+  // An editor of Acme only.
+  const link = (await admin.call('POST', `/orgs/${acme.id}/invites`, { email: 'ed@acme.nl', role: 'editor' })).json.link;
+  const ed = client(app);
+  await ed.call('POST', `/auth/invite/${link.split('/').pop()}`, { name: 'Ed', password: 'editor password 1' });
+
+  // Making a token needs a name; the session is fresh, so no password prompt.
+  assert.equal((await ed.call('POST', '/me/tokens', { name: '' })).status, 400);
+  const ro = (await ed.call('POST', '/me/tokens', { name: 'reader', expiresDays: 30 })).json;
+  const rw = (await ed.call('POST', '/me/tokens', { name: 'writer', canWrite: true })).json;
+  assert.match(ro.token, /^oc_pat_/);
+  assert.equal((await ed.call('GET', '/me/tokens')).json.length, 2);
+  assert.ok(!JSON.stringify((await ed.call('GET', '/me/tokens')).json).includes(ro.token), 'token is shown once, not listed');
+
+  const api = (token: string, method: string, url: string, body?: unknown) =>
+    app.inject({ method: method as 'GET', url: '/admin/api' + url, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, payload: body ? JSON.stringify(body) : undefined });
+
+  // Same visibility as the person; no CSRF header needed.
+  const sites = (await api(ro.token, 'GET', '/sites')).json();
+  assert.deepEqual(sites.map((s: { name: string }) => s.name), ['Acme']);
+  assert.equal((await api(ro.token, 'PUT', `/sites/${acmeSite.id}`, { contact: 'x@acme.nl' })).statusCode, 403, 'read-only token');
+  assert.equal((await api(rw.token, 'PUT', `/sites/${acmeSite.id}`, { contact: 'x@acme.nl' })).statusCode, 200);
+  // Never: account security, people, deleting.
+  assert.equal((await api(rw.token, 'GET', '/me/tokens')).statusCode, 403);
+  assert.equal((await api(rw.token, 'POST', '/me/tokens', { name: 'more' })).statusCode, 403);
+  assert.equal((await api(rw.token, 'POST', `/orgs/${acme.id}/invites`, { email: 'x@y.nl', role: 'owner' })).statusCode, 403);
+  assert.equal((await api(rw.token, 'DELETE', `/sites/${acmeSite.id}`)).statusCode, 403);
+  assert.equal((await api('oc_pat_nonsense', 'GET', '/sites')).statusCode, 401);
+
+  // MCP over the same token.
+  const mcp = async (token: string, method: string, params: unknown = {}, id: number | null = 1) => {
+    const r = await app.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, payload: JSON.stringify({ jsonrpc: '2.0', ...(id !== null && { id }), method, params }) });
+    return { status: r.statusCode, json: r.body ? r.json() : null };
+  };
+  assert.equal((await app.inject({ method: 'POST', url: '/mcp', payload: { jsonrpc: '2.0', id: 1, method: 'ping' } })).statusCode, 401);
+  const init = await mcp(ro.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
+  assert.equal(init.json.result.protocolVersion, '2025-06-18');
+  assert.equal((await mcp(ro.token, 'notifications/initialized', {}, null)).status, 202);
+  const roTools = (await mcp(ro.token, 'tools/list')).json.result.tools.map((t: { name: string }) => t.name);
+  const rwTools = (await mcp(rw.token, 'tools/list')).json.result.tools.map((t: { name: string }) => t.name);
+  assert.ok(roTools.includes('check_compliance') && !roTools.includes('update_site'), 'read-only token only lists read tools');
+  assert.ok(rwTools.includes('update_site') && rwTools.includes('scan_site'));
+
+  const listed = await mcp(ro.token, 'tools/call', { name: 'list_sites', arguments: {} });
+  assert.deepEqual(JSON.parse(listed.json.result.content[0].text).map((s: { name: string }) => s.name), ['Acme']);
+  const other = await mcp(ro.token, 'tools/call', { name: 'check_compliance', arguments: { siteId: 999 } });
+  assert.equal(other.json.result.isError, true);
+  const upd = await mcp(rw.token, 'tools/call', { name: 'update_site', arguments: { siteId: acmeSite.id, layout: 'center', buttonColour: '#3f4fc4' } });
+  assert.equal(upd.json.result.isError, undefined, JSON.stringify(upd.json));
+  const theme = (await admin.call('GET', `/sites/${acmeSite.id}`)).json.theme;
+  assert.deepEqual([theme.position, theme.primary, theme.background], ['center', '#3f4fc4', '#ffffff'], 'other theme fields kept');
+  const denied = await mcp(ro.token, 'tools/call', { name: 'update_site', arguments: { siteId: acmeSite.id, layout: 'bottom' } });
+  assert.equal(denied.json.result.isError, true);
+  assert.equal((await mcp(ro.token, 'nope/method')).json.error.code, -32601);
+
+  // Writes by token show in the client's activity log; deleting the token cuts access.
+  const log = (await admin.call('GET', `/audit?orgId=${acme.id}`)).json.rows;
+  assert.ok(log.some((r: { action: string; userEmail: string }) => r.action === 'site_updated' && r.userEmail === 'ed@acme.nl'));
+  await ed.call('DELETE', `/me/tokens/${rw.id}`);
+  assert.equal((await api(rw.token, 'GET', '/sites')).statusCode, 401);
+  await app.close();
+});

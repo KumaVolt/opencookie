@@ -16,6 +16,7 @@ import { config } from './config.ts';
 import { downloadCookieDb, loadMatcher, loadTranslations } from './data.ts';
 import { hostBelongsToSite, openDb, type SiteInput } from './db.ts';
 import { buildBannerConfig, cookiePolicyMarkdown, markdownToHtml } from './render.ts';
+import { registerMcp } from './mcp.ts';
 import { ScanQueue } from './scans.ts';
 
 export async function buildServer(opts: { dbFile?: string; logger?: boolean } = {}) {
@@ -156,6 +157,7 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
   // =========================================================================
 
   const auth = registerAuth(app, db);
+  registerMcp(app);
 
   // Every /admin/api/sites/:id… route: the user must be a member of the site's client (organisation).
   // Reading needs "viewer", changing needs "editor", deleting a site needs "owner".
