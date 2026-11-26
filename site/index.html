@@ -2,6 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- OpenCookie on its own homepage: holds analytics back until the visitor allows statistics. -->
+  <script src="/s/sc7lL9PH0x5V/banner.js"></script>
+  <script>
+    // Google Tag Manager for this page. Leave GTM_ID empty to turn analytics off:
+    // then nothing loads and the banner stays hidden.
+    (function () {
+      var GTM_ID = '';
+      window.dataLayer = window.dataLayer || [];
+      window.track = function (event, params) {
+        if (GTM_ID && window.OpenCookie && window.OpenCookie.hasConsent('statistics')) {
+          window.dataLayer.push(Object.assign({ event: event }, params || {}));
+        }
+      };
+      if (!GTM_ID) return;
+      var s = document.createElement('script');
+      s.setAttribute('type', 'text/plain');
+      s.setAttribute('data-oc-category', 'statistics');
+      s.text = "(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});" +
+        "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;" +
+        "j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','" + GTM_ID + "');";
+      document.head.appendChild(s);
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenCookie: cookie consent you host yourself</title>
   <meta name="description" content="OpenCookie is an open-source cookie banner and consent manager you run on your own server. It scans your sites for cookies, follows the rules of your visitors' country and keeps the consent log with you.">
@@ -310,10 +333,12 @@
 
   <footer>
     <div class="wrap">
-      <span>OpenCookie is made by <a href="https://kumavolt.dev/">KumaVolt</a>. AGPL-3.0. This page sets no cookies.</span>
+      <span>OpenCookie is made by <a href="https://kumavolt.dev/">KumaVolt</a>. AGPL-3.0. Analytics only load if you allow them.</span>
       <nav aria-label="Links">
         <a href="https://github.com/KumaVolt/opencookie">GitHub</a>
         <a href="https://github.com/KumaVolt/opencookie/issues">Report a problem</a>
+        <a href="/api/v1/sites/sc7lL9PH0x5V/policy?lang=en">Cookie policy</a>
+        <a href="#" data-oc-open>Cookie settings</a>
       </nav>
     </div>
   </footer>
@@ -330,7 +355,7 @@
         if (focus) tab.focus();
       };
       tabs.forEach(function (t, i) {
-        t.addEventListener('click', function () { show(t); });
+        t.addEventListener('click', function () { show(t); window.track('install_tab', { tab: t.id.replace('tab-', '') }); });
         t.addEventListener('keydown', function (e) {
           var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
           if (d) { e.preventDefault(); show(tabs[(i + d + tabs.length) % tabs.length], true); }
@@ -339,10 +364,15 @@
       document.documentElement.classList.add('js');
       show(tabs[0]);
     })();
+    document.addEventListener('click', function (e) {
+      var a = e.target instanceof Element ? e.target.closest('a[href^="https://github.com/"]') : null;
+      if (a) window.track('github_click', { link_url: a.href });
+    });
     document.querySelectorAll('[data-copy]').forEach(function (b) {
       b.addEventListener('click', function () {
         var t = document.getElementById(b.getAttribute('data-copy')).textContent;
         (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { b.textContent = 'Copied'; }, function () { b.textContent = 'Select the text to copy'; });
+        window.track('copy_prompt', { prompt: b.getAttribute('data-copy') });
       });
     });
   </script>
