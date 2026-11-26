@@ -3,6 +3,27 @@
 <head>
   <meta charset="utf-8">
   <script src="/s/sc7lL9PH0x5V/banner.js"></script>
+  <script>
+    // Google Tag Manager for this page. Leave GTM_ID empty to turn analytics off:
+    // then nothing loads and the banner stays hidden.
+    (function () {
+      var GTM_ID = 'GTM-KLZNDPJF';
+      window.dataLayer = window.dataLayer || [];
+      window.track = function (event, params) {
+        if (GTM_ID && window.OpenCookie && window.OpenCookie.hasConsent('statistics')) {
+          window.dataLayer.push(Object.assign({ event: event }, params || {}));
+        }
+      };
+      if (!GTM_ID) return;
+      var s = document.createElement('script');
+      s.setAttribute('type', 'text/plain');
+      s.setAttribute('data-oc-category', 'statistics');
+      s.text = "(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});" +
+        "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;" +
+        "j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','" + GTM_ID + "');";
+      document.head.appendChild(s);
+    })();
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cookie policy · OpenCookie</title>
   <meta name="description" content="Which cookies the OpenCookie website uses, and how to change your choice.">
