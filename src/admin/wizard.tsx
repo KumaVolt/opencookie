@@ -79,12 +79,13 @@ export function SetupWizard({ me, meta, orgs, preferOrg, onDone }: {
     try {
       const orgId = orgChoice === 'new' ? (await api<{ id: number }>('POST', '/orgs', { name: orgName.trim() })).id : orgChoice;
       const langs = (PACK_LANGS[pack] ?? ['en']).filter((l) => meta.locales.some((x) => x.code === l));
-      const s = await api<{ id: number }>('POST', '/sites', {
+      const s = await api<{ id: number; scanId: number | null }>('POST', '/sites', {
         orgId, name: site.name.trim() || domain, domain, rulePack: pack, defaultLocale: langs[0] ?? 'en', locales: langs.length ? langs : ['en'],
         theme: { primary: colour, position: layout },
       });
       const embed = await api<{ head: string }>('GET', `/sites/${s.id}/embed`);
       setMade({ orgId, siteId: s.id, head: embed.head });
+      if (s.scanId) setScan('started');
       setOrgChoice(orgId);
       setStep(4);
     } catch (x) {
@@ -218,7 +219,7 @@ export function SetupWizard({ me, meta, orgs, preferOrg, onDone }: {
             <h3>Find the cookies</h3>
             <p class="muted">The scanner visits pages of {domain} and lists every cookie it finds, with its purpose from the Open Cookie Database.</p>
             {scan === 'idle' && <button type="button" onClick={() => api('POST', `/sites/${made.siteId}/scans`, {}).then(() => setScan('started')).catch(() => setScan('failed'))}>Scan {domain} now</button>}
-            {scan === 'started' && <p class="badge ok">Scan started. Results show on the site's Cookies tab in a minute or two.</p>}
+            {scan === 'started' && <p class="badge ok">Scanning {domain} now. Results show on the site's Cookies tab in a minute or two.</p>}
             {scan === 'failed' && <p class="error-text">The scan could not start. You can try again from the site's Scans tab.</p>}
           </>
         )}

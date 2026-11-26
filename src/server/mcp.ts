@@ -114,7 +114,7 @@ const TOOLS: Tool[] = [
   {
     name: 'add_site',
     title: 'Add a site',
-    description: 'Adds a site to a client (you must be an owner of that client). Returns the new site; use get_site for its snippet.',
+    description: 'Adds a site to a client (you must be an owner of that client). A first cookie scan starts automatically (scanId in the result; see list_scans). Returns the new site; use get_site for its snippet.',
     inputSchema: {
       type: 'object',
       properties: {

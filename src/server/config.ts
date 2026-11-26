@@ -57,5 +57,7 @@ export const config = {
   /** Optional folder with a public homepage (index.html plus files), served at / instead of redirecting to the admin. */
   homepageDir: process.env.HOMEPAGE_DIR ? resolve(process.env.HOMEPAGE_DIR) : '',
   /** Show Gravatar photos. Off by default: it sends a hash of each email address to Gravatar. */
+  /** Scan a site as soon as it is added. On by default; AUTO_SCAN=false turns it off. */
+  autoScan: !/^(0|false|no)$/i.test(process.env.AUTO_SCAN ?? ''),
   gravatar: /^(1|true|yes)$/i.test(process.env.GRAVATAR ?? ''),
 };

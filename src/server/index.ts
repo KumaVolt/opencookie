@@ -19,12 +19,16 @@ import { buildBannerConfig, cookiePolicyMarkdown, markdownToHtml } from './rende
 import { registerMcp } from './mcp.ts';
 import { ScanQueue } from './scans.ts';
 
-export async function buildServer(opts: { dbFile?: string; logger?: boolean } = {}) {
+/** What the routes need from the scan queue; tests can pass their own. */
+type Scans = Pick<ScanQueue, 'enqueue' | 'isBusy'>;
+
+export async function buildServer(opts: { dbFile?: string; logger?: boolean; autoScan?: boolean; scans?: (db: ReturnType<typeof openDb>) => Scans } = {}) {
   const db = openDb(opts.dbFile);
   db.failInterruptedScans();
   let matcher: CookieMatcher = await loadMatcher();
   const translations = await loadTranslations();
-  const scans = new ScanQueue(db, () => matcher);
+  const scans: Scans = opts.scans ? opts.scans(db) : new ScanQueue(db, () => matcher);
+  const autoScan = opts.autoScan ?? config.autoScan;
 
   const app = Fastify({ logger: opts.logger ?? true, trustProxy: true, bodyLimit: 256 * 1024 });
 
@@ -213,7 +217,8 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
     if (!body.name || !body.domain) return reply.code(400).send({ error: 'Name and domain are required' });
     const site = db.createSite(orgId, body as SiteInput & { name: string; domain: string });
     auth.audit(req, 'site_created', { orgId, siteId: site.id, detail: `${site.name} (${site.domain})` });
-    return site;
+    // Find the site's cookies straight away, so the cookie list is not empty on the first visit.
+    return { ...site, scanId: autoScan ? scans.enqueue(site.id) : null };
   });
 
   app.get<{ Params: { id: string } }>('/admin/api/sites/:id', async (req) => {

@@ -7,6 +7,8 @@ import { join } from 'node:path';
 process.env.SETUP_KEY = 'test-setup-key';
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'oc-test-'));
 process.env.SECRET = 'test-secret';
+// Tests add sites with real domain names; never scan them.
+process.env.AUTO_SCAN = 'false';
 // Reuse the downloaded cookie database instead of fetching it again.
 const ocd = join(import.meta.dirname, '../data/open-cookie-database.json');
 if (existsSync(ocd)) copyFileSync(ocd, join(process.env.DATA_DIR, 'open-cookie-database.json'));
@@ -236,4 +238,30 @@ test('access tokens and MCP: scoped to the user, read-only by default, no accoun
   await ed.call('DELETE', `/me/tokens/${rw.id}`);
   assert.equal((await api(rw.token, 'GET', '/sites')).statusCode, 401);
   await app.close();
+});
+
+test('adding a site queues its first scan', async () => {
+  const queued: number[] = [];
+  const fakeScans = () => ({ enqueue: (id: number) => (queued.push(id), 100 + id), isBusy: () => false });
+  const { app } = await buildServer({ dbFile: ':memory:', logger: false, autoScan: true, scans: fakeScans });
+  const admin = client(app);
+  assert.equal((await admin.call('POST', '/auth/setup', { setupKey: 'test-setup-key', email: 'scan@example.nl', password: 'sturdy password 1' })).status, 200);
+  const org = (await admin.call('POST', '/orgs', { name: 'Scan BV' })).json;
+  const site = (await admin.call('POST', '/sites', { orgId: org.id, name: 'Shop', domain: 'shop.example' })).json;
+  assert.deepEqual(queued, [site.id]);
+  assert.equal(site.scanId, 100 + site.id);
+  // A rejected add queues nothing.
+  assert.equal((await admin.call('POST', '/sites', { orgId: org.id, name: '', domain: '' })).status, 400);
+  assert.deepEqual(queued, [site.id]);
+  await app.close();
+
+  // AUTO_SCAN=false (the test default): no scan, scanId null.
+  const off: number[] = [];
+  const second = await buildServer({ dbFile: ':memory:', logger: false, scans: () => ({ enqueue: (id: number) => (off.push(id), 1), isBusy: () => false }) });
+  const a2 = client(second.app);
+  await a2.call('POST', '/auth/setup', { setupKey: 'test-setup-key', email: 'scan@example.nl', password: 'sturdy password 1' });
+  const o2 = (await a2.call('POST', '/orgs', { name: 'Scan BV' })).json;
+  assert.equal((await a2.call('POST', '/sites', { orgId: o2.id, name: 'Shop', domain: 'shop.example' })).json.scanId, null);
+  assert.deepEqual(off, []);
+  await second.app.close();
 });

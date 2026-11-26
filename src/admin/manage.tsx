@@ -312,7 +312,7 @@ export function AddSite({ orgId }: { orgId: number }) {
           <button class="primary" type="submit" style="flex:0 0 auto;align-self:flex-end;margin-bottom:12px">Add site</button>
         </div>
         {err && <p class="error-text" role="alert">{err}</p>}
-        <p class="muted" style="margin:0">You choose the country rules, languages and look on the next page.</p>
+        <p class="muted" style="margin:0">A first cookie scan starts right away. You choose the country rules, languages and look on the next page.</p>
       </form>
     </div>
   );

@@ -126,6 +126,7 @@ Open `PUBLIC_URL/admin/`, enter the setup key and create the first admin account
 | `HOMEPAGE_DIR` | Optional. A folder with an `index.html` to show at `/` (its other files are served under `/site/`). Without it, `/` opens the admin. [`site/`](site) is the OpenCookie homepage. |
 | `APP_NAME` | Name shown in the admin, emails and authenticator apps. |
 | `SESSION_HOURS` | How long a login lasts. Default 12. |
+| `AUTO_SCAN` | `false` stops the automatic first scan when a site is added. On by default. |
 | `SCAN_MAX_PAGES` | Pages per scan. Default 20. |
 | `DEEPL_API_KEY`, `LIBRETRANSLATE_URL` | For translating the cookie database. |
 
