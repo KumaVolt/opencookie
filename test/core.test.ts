@@ -7,7 +7,7 @@ import { formatRetention, parseRetention, retentionDays } from '../src/core/rete
 import { checkCompliance } from '../src/core/compliance.ts';
 import { TranslationStore } from '../src/core/translations.ts';
 import { TEMPLATES } from '../src/core/templates/index.ts';
-import { markdownToHtml } from '../src/server/render.ts';
+import { buildBannerConfig, consentNeeded, markdownToHtml } from '../src/server/render.ts';
 import type { Site, SiteCookie } from '../src/core/types.ts';
 
 const words = { session: 'Session', persistent: 'Persistent', unknown: 'Unknown' };
@@ -97,6 +97,34 @@ test('compliance flags pre-consent cookies but respects confirmed exemptions', (
   assert.ok(codes(site).includes('PRECONSENT_COOKIES'));
   assert.ok(!codes({ ...site, exemptConfirmed: ['statistics'] }).includes('PRECONSENT_COOKIES'));
   assert.ok(codes({ ...site, privacyPolicyUrl: '' }).includes('NO_POLICY_URL'));
+  // Statistics cookies need consent; with only necessary ones, or confirmed exempt, no banner is needed.
+  assert.ok(!codes(site).includes('NO_BANNER_NEEDED'));
+  assert.ok(codes({ ...site, exemptConfirmed: ['statistics'] }).includes('NO_BANNER_NEEDED'));
+  const onlyNecessary = checkCompliance({ site, cookies: [cookie('PHPSESSID', 'necessary')], latestScan: scan, missingTranslations: {} }).map((i) => i.code);
+  assert.ok(onlyNecessary.includes('NO_BANNER_NEEDED'));
+  assert.ok(!checkCompliance({ site, cookies: [], latestScan: null, missingTranslations: {} }).some((i) => i.code === 'NO_BANNER_NEEDED'));
+});
+
+test('the banner is only needed when a scanned site has cookies that need consent', () => {
+  const when = '2026-11-26T10:00:00Z';
+  assert.equal(consentNeeded(['necessary', 'statistics'], [], null), true, 'not scanned yet: show it');
+  assert.equal(consentNeeded(['necessary', 'preferences', 'statistics', 'marketing'], [], null), true);
+  assert.equal(consentNeeded(['necessary'], [], when), false);
+  assert.equal(consentNeeded(['necessary', 'statistics'], [], when), true);
+  assert.equal(consentNeeded(['necessary', 'statistics'], ['statistics'], when), false, 'exempt statistics');
+  assert.equal(consentNeeded(['necessary', 'statistics', 'marketing'], ['statistics'], when), true);
+
+  // A site whose scan found no cookies at all needs no banner; before its first scan it does.
+  const site = {
+    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
+    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
+    textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
+  } satisfies Site;
+  const tr = new TranslationStore();
+  const scanned = buildBannerConfig(site, [], 'en', tr, when);
+  assert.deepEqual(scanned.categories, ['necessary']);
+  assert.equal(scanned.consentNeeded, false);
+  assert.equal(buildBannerConfig(site, [], 'en', tr, null).consentNeeded, true);
 });
 
 test('markdown renderer escapes HTML but keeps the settings button', () => {

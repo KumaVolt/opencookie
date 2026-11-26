@@ -125,7 +125,20 @@ const COOKIE = 'oc_consent';
     return null;
   }
 
+  // True while the banner stays hidden because nothing on the site needs consent.
+  let quiet = false;
+  /** Something that needs consent turned up after all (e.g. a tag manager added a tracker): ask. */
+  function consentNowNeeded(cat: Category) {
+    askAbout([cat]);
+    if (!quiet) return;
+    quiet = false;
+    if (!config) return;
+    if (stored) showFab();
+    else showBanner();
+  }
+
   function blockScript(el: HTMLScriptElement, cat: Category) {
+    consentNowNeeded(cat);
     el.setAttribute('data-oc-category', cat);
     el.setAttribute('data-oc-type', el.getAttribute('type') || '');
     el.setAttribute('data-oc-auto', '');
@@ -136,6 +149,7 @@ const COOKIE = 'oc_consent';
   function blockIframe(el: HTMLIFrameElement, cat: Category) {
     const src = el.getAttribute('src');
     if (!src || src === 'about:blank') return;
+    consentNowNeeded(cat);
     el.setAttribute('data-oc-category', cat);
     el.setAttribute('data-oc-src', src);
     el.setAttribute('src', 'about:blank');
@@ -443,8 +457,8 @@ const COOKIE = 'oc_consent';
       </div>`);
     const close = () => {
       closeUi();
-      if (!stored) showBanner();
-      else showFab();
+      if (stored) showFab();
+      else if (!quiet) showBanner();
     };
     dlg.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest('[data-act]')?.getAttribute('data-act');
@@ -498,7 +512,7 @@ const COOKIE = 'oc_consent';
   }
 
   function showFab() {
-    if (!config) return;
+    if (!config || quiet) return;
     const r = ensureRoot();
     if (r.querySelector('.oc-fab')) return;
     const label = config.texts.withdrawButton;
@@ -573,15 +587,37 @@ const COOKIE = 'oc_consent';
     config = cfg;
     renderPlaceholders();
     renderDeclarations();
+    // Only necessary cookies: no banner and no settings button. Links with data-oc-open still work.
+    askAbout(waitingCategories());
+    quiet = !cfg.consentNeeded && !pageWaitsForConsent();
     if (stored) {
       showFab();
     } else if (cfg.model === 'opt-out' && gpc) {
       save(grantedList().filter((c) => c !== 'marketing'), 'gpc');
       if (cfg.showGpcConfirmation) showGpcConfirmation();
-    } else {
+    } else if (!quiet) {
       showBanner();
     }
   });
+
+  /** Categories of scripts or embeds on this page that are held back for consent. */
+  function waitingCategories(): Category[] {
+    return Array.from(document.querySelectorAll('[data-oc-category]'))
+      .map((el) => el.getAttribute('data-oc-category') as Category)
+      .filter((c) => ALL.includes(c) && !isGranted(c));
+  }
+  function pageWaitsForConsent(): boolean {
+    return waitingCategories().length > 0;
+  }
+  /**
+   * The banner offers the categories the scan found. Something on the page held back for another
+   * category (a tag added after the last scan) must be offered too, or "Accept all" could never run it.
+   */
+  function askAbout(cats: Category[]) {
+    if (!config) return;
+    const missing = cats.filter((c) => !config!.categories.includes(c));
+    if (missing.length) config.categories = ALL.filter((c) => config!.categories.includes(c) || missing.includes(c));
+  }
 
   function uniq<T>(a: T[]): T[] {
     return [...new Set(a)];

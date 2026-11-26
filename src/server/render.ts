@@ -29,6 +29,11 @@ export interface BannerConfig {
   refusalReaskDays: number;
   exempt: Category[];
   categories: Category[];
+  /**
+   * False when a finished scan found only necessary (or exempt) cookies: then the banner
+   * stays hidden unless the page itself holds back something that needs consent.
+   */
+  consentNeeded: boolean;
   consentMode: boolean;
   autoBlock: boolean;
   blockRules: BlockRule[];
@@ -69,13 +74,23 @@ export function declaredCookies(cookies: SiteCookie[], locale: string, tr: Trans
   return out;
 }
 
+/**
+ * A banner is only needed when the site sets cookies that need consent. Without a finished
+ * scan we cannot know, so it is shown. Unknown cookies count as marketing, so they need it too.
+ */
+export function consentNeeded(categories: Category[], exempt: Category[], lastScanned: string | null): boolean {
+  if (!lastScanned) return true;
+  return categories.some((c) => c !== 'necessary' && !exempt.includes(c));
+}
+
 export function buildBannerConfig(site: Site, cookies: SiteCookie[], requestedLocale: string | undefined, tr: TranslationStore, lastScanned: string | null): BannerConfig {
   const pack = getRulePack(site.rulePack);
   const locale = pickLocale(site, requestedLocale);
   const texts = textsFor(site, locale);
   const declared = declaredCookies(cookies, locale, tr, texts);
-  // Show necessary plus every category that actually has cookies; before the first scan, show all.
-  const categories = cookies.length ? CATEGORIES.filter((c) => c === 'necessary' || declared[c].length > 0) : [...CATEGORIES];
+  // Show necessary plus every category that actually has cookies. With no cookies known and no
+  // finished scan yet, show all: we can't tell what the site sets. A scan that found none means none.
+  const categories = cookies.length || lastScanned ? CATEGORIES.filter((c) => c === 'necessary' || declared[c].length > 0) : [...CATEGORIES];
   const cookieNames: Record<string, string[]> = {};
   for (const c of cookies) {
     if (c.category === 'necessary') continue;
@@ -94,6 +109,7 @@ export function buildBannerConfig(site: Site, cookies: SiteCookie[], requestedLo
     refusalReaskDays: pack.refusalReaskDays,
     exempt: exemptCategories(site, pack),
     categories,
+    consentNeeded: consentNeeded(categories, exemptCategories(site, pack), lastScanned),
     consentMode: site.consentMode,
     autoBlock: site.autoBlock,
     blockRules: site.autoBlock ? rulesFor(site.consentMode) : [],

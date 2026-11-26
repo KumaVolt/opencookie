@@ -128,5 +128,12 @@ export function checkCompliance(input: ComplianceInput): ComplianceIssue[] {
     }
   }
 
+  if (latestScan?.status === 'done' && cookies.every((c) => c.category === 'necessary' || exempt.has(c.category))) {
+    issues.push({
+      severity: 'info',
+      code: 'NO_BANNER_NEEDED',
+      message: 'The last scan found only cookies that need no consent, so visitors see no banner. It appears by itself when a script or embed that needs consent turns up on a page.',
+    });
+  }
   return issues;
 }
