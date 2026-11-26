@@ -4,3 +4,4 @@ data/*.sqlite*
 data/open-cookie-database.json
 .env
 .git
+data/secret.key

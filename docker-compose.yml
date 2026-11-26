@@ -1,6 +1,8 @@
 services:
   opencookie:
+    image: ghcr.io/kumavolt/opencookie:latest
     build: .
+    shm_size: 256m
     restart: unless-stopped
     ports:
       - "8080:8080"

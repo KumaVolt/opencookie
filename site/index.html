@@ -151,6 +151,13 @@
     .then { margin-top: 40px; display: flex; flex-direction: column; gap: 12px; max-width: 760px; }
     .then .note { margin-top: 4px; font-size: 14px; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .tabs { display: none; gap: 4px; padding: 4px; background: var(--panel); border-radius: 999px; width: fit-content; max-width: 100%; margin: 0 0 20px; }
+    .tabs button { height: 40px; padding: 0 18px; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font: 600 15px/1 inherit; font-family: inherit; cursor: pointer; white-space: nowrap; }
+    .tabs button[aria-selected="true"] { background: var(--biscuit); color: #231b15; }
+    .js .tabs { display: flex; }
+    .js .options { display: block; max-width: 760px; }
+    .js .option h3 { display: none; }
+    .js .option[hidden] { display: none; }
     footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 15px; }
     footer .wrap { display: flex; gap: 24px; justify-content: space-between; flex-wrap: wrap; }
     footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
@@ -269,18 +276,24 @@
     <section id="install">
       <div class="wrap">
         <h2 class="title">Run your own</h2>
-        <p class="intro">Pick one. Either way you need a server with Docker and a domain for OpenCookie, such as consent.yoursite.com.</p>
+        <p class="intro">You need a server with Docker and a domain for OpenCookie, such as consent.yoursite.com.</p>
+        <div class="tabs" role="tablist" aria-label="How to install">
+          <button type="button" role="tab" id="tab-docker" aria-controls="panel-docker" aria-selected="true">With Docker</button>
+          <button type="button" role="tab" id="tab-ai" aria-controls="panel-ai" aria-selected="false" tabindex="-1">With your AI assistant</button>
+        </div>
         <div class="options">
-          <div class="option">
+          <div class="option" role="tabpanel" id="panel-docker" aria-labelledby="tab-docker" tabindex="0">
             <h3>With Docker</h3>
-            <pre><code>git clone https://github.com/KumaVolt/opencookie.git
-cd opencookie && cp .env.example .env
-docker compose up -d</code></pre>
-            <p>Set <code>PUBLIC_URL</code> and <code>SETUP_KEY</code> in <code>.env</code> first. Then open <code>/admin/</code> on your domain and enter the setup key.</p>
+            <pre><code>docker run -d --name opencookie --restart unless-stopped \
+  -p 8080:8080 --shm-size 256m -v opencookie-data:/data \
+  -e PUBLIC_URL=https://consent.yoursite.com \
+  -e SETUP_KEY=choose-a-long-key \
+  ghcr.io/kumavolt/opencookie</code></pre>
+            <p>Point your HTTPS proxy at port 8080, open <code>/admin/</code> on your domain and enter the setup key. Runs on amd64 and arm64.</p>
           </div>
-          <div class="option">
+          <div class="option" role="tabpanel" id="panel-ai" aria-labelledby="tab-ai" tabindex="0">
             <h3>With your AI assistant</h3>
-            <p class="prompt" id="ai-prompt">Install OpenCookie (github.com/KumaVolt/opencookie) on this server with Docker Compose. Serve it on https://consent.yoursite.com with HTTPS, fill in PUBLIC_URL, SETUP_KEY and SECRET in .env, and tell me the setup key when it runs.</p>
+            <p class="prompt" id="ai-prompt">Install OpenCookie on this server with Docker, using the image ghcr.io/kumavolt/opencookie (docs: github.com/KumaVolt/opencookie). Serve it on https://consent.yoursite.com with HTTPS, set PUBLIC_URL and a long random SETUP_KEY, keep /data on a volume, and tell me the setup key when it runs.</p>
             <button class="copy" type="button" data-copy="ai-prompt">Copy prompt</button>
             <p>Paste it into Claude Code, Codex or another coding assistant on your server. Change the domain to yours.</p>
           </div>
@@ -305,6 +318,27 @@ docker compose up -d</code></pre>
     </div>
   </footer>
   <script>
+    (function () {
+      var tabs = [].slice.call(document.querySelectorAll('[role="tab"]'));
+      var show = function (tab, focus) {
+        tabs.forEach(function (t) {
+          var on = t === tab;
+          t.setAttribute('aria-selected', on);
+          t.tabIndex = on ? 0 : -1;
+          document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+        });
+        if (focus) tab.focus();
+      };
+      tabs.forEach(function (t, i) {
+        t.addEventListener('click', function () { show(t); });
+        t.addEventListener('keydown', function (e) {
+          var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+          if (d) { e.preventDefault(); show(tabs[(i + d + tabs.length) % tabs.length], true); }
+        });
+      });
+      document.documentElement.classList.add('js');
+      show(tabs[0]);
+    })();
     document.querySelectorAll('[data-copy]').forEach(function (b) {
       b.addEventListener('click', function () {
         var t = document.getElementById(b.getAttribute('data-copy')).textContent;

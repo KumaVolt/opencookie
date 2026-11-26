@@ -99,10 +99,16 @@ How the figures were worked out:
 You need Docker, a domain name for the consent server (for example `consent.example.com`), and HTTPS in front of it (Caddy, Traefik or nginx).
 
 ```sh
-git clone https://github.com/KumaVolt/opencookie.git && cd opencookie
-cp .env.example .env    # set PUBLIC_URL, SETUP_KEY and SECRET
-docker compose up -d
+docker run -d --name opencookie --restart unless-stopped \
+  -p 8080:8080 --shm-size 256m -v opencookie-data:/data \
+  -e PUBLIC_URL=https://consent.example.com \
+  -e SETUP_KEY=choose-a-long-key \
+  ghcr.io/kumavolt/opencookie
 ```
+
+The image is built from `main` for amd64 and arm64. Point your HTTPS proxy at port 8080. Back up the `opencookie-data` volume: it holds the database and the generated `secret.key`.
+
+With Docker Compose instead: clone this repository, `cp .env.example .env`, fill it in and run `docker compose up -d`. Add `--build` to build the image from source.
 
 Open `PUBLIC_URL/admin/`, enter the setup key and create the first admin account. Then add a client and a site, and paste the snippet as the **first** element in the `<head>` of every page, without `async` or `defer`:
 
