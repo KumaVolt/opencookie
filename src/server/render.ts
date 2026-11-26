@@ -2,7 +2,7 @@ import { CATEGORIES, type Category } from '../core/categories.ts';
 import { rulesFor, type BlockRule } from '../core/blocklist.ts';
 import { exemptCategories } from '../core/compliance.ts';
 import { formatRetention, parseRetention } from '../core/retention.ts';
-import { getRulePack } from '../core/rulepacks.ts';
+import { getRulePack, sitePackIds } from '../core/rulepacks.ts';
 import { getTemplate, mergeTexts, type BannerTexts } from '../core/templates/index.ts';
 import type { TranslationStore } from '../core/translations.ts';
 import type { Site, SiteCookie } from '../core/types.ts';
@@ -22,6 +22,8 @@ export interface BannerConfig {
   policyVersion: number;
   locale: string;
   locales: string[];
+  /** The rule pack this banner follows: the site's own, or one of its country rules. */
+  rulePack: string;
   model: 'opt-in' | 'opt-out';
   honorGpc: boolean;
   showGpcConfirmation: boolean;
@@ -83,8 +85,8 @@ export function consentNeeded(categories: Category[], exempt: Category[], lastSc
   return categories.some((c) => c !== 'necessary' && !exempt.includes(c));
 }
 
-export function buildBannerConfig(site: Site, cookies: SiteCookie[], requestedLocale: string | undefined, tr: TranslationStore, lastScanned: string | null): BannerConfig {
-  const pack = getRulePack(site.rulePack);
+export function buildBannerConfig(site: Site, cookies: SiteCookie[], requestedLocale: string | undefined, tr: TranslationStore, lastScanned: string | null, packId?: string): BannerConfig {
+  const pack = getRulePack(packId && sitePackIds(site).includes(packId) ? packId : site.rulePack);
   const locale = pickLocale(site, requestedLocale);
   const texts = textsFor(site, locale);
   const declared = declaredCookies(cookies, locale, tr, texts);
@@ -102,6 +104,7 @@ export function buildBannerConfig(site: Site, cookies: SiteCookie[], requestedLo
     policyVersion: site.policyVersion,
     locale,
     locales: site.locales,
+    rulePack: pack.id,
     model: pack.model,
     honorGpc: pack.honorGpc,
     showGpcConfirmation: pack.showGpcConfirmation,

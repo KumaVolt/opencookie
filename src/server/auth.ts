@@ -85,6 +85,7 @@ const TOKEN_WRITES: [string, RegExp][] = [
   ['PUT', /^\/sites\/\d+$/],
   ['POST', /^\/sites\/\d+\/cookies$/],
   ['PUT', /^\/sites\/\d+\/cookies\/\d+$/],
+  ['POST', /^\/sites\/\d+\/cookies\/review$/],
   ['POST', /^\/sites\/\d+\/scans$/],
 ];
 export function tokenAllowed(method: string, url: string, canWrite: boolean): boolean {

@@ -60,4 +60,6 @@ export const config = {
   /** Scan a site as soon as it is added. On by default; AUTO_SCAN=false turns it off. */
   autoScan: !/^(0|false|no)$/i.test(process.env.AUTO_SCAN ?? ''),
   gravatar: /^(1|true|yes)$/i.test(process.env.GRAVATAR ?? ''),
+  /** A request header with the visitor's country set by a CDN, e.g. cf-ipcountry. Replaces the built-in lookup. */
+  geoHeader: (process.env.GEO_HEADER ?? '').trim().toLowerCase(),
 };

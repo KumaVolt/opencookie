@@ -534,10 +534,7 @@ function AccessTokens({ run }: { run: (action: (pw?: string) => Promise<unknown>
   const [copied, setCopied] = useState('');
   const load = () => api<TokenRow[]>('GET', '/me/tokens').then(setRows);
   useEffect(() => void load(), []);
-  const mcpUrl = `${location.origin}/mcp`;
   const copy = (k: string, v: string) => { void navigator.clipboard?.writeText(v); setCopied(k); };
-  const claudeCode = made ? `claude mcp add --transport http opencookie ${mcpUrl} --header "Authorization: Bearer ${made.token}"` : '';
-  const jsonCfg = made ? JSON.stringify({ mcpServers: { opencookie: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${made.token}` } } } }, null, 2) : '';
   return (
     <>
       <section class="panel">
@@ -547,11 +544,7 @@ function AccessTokens({ run }: { run: (action: (pw?: string) => Promise<unknown>
           <div class="notice">
             <p><strong>Copy your token now.</strong> It is shown only once.</p>
             <div class="snippet"><pre>{made.token}</pre><button type="button" onClick={() => copy('token', made.token)}>{copied === 'token' ? 'Copied' : 'Copy'}</button></div>
-            <h3 style="margin-top:16px">Connect Claude Code</h3>
-            <div class="snippet"><pre>{claudeCode}</pre><button type="button" onClick={() => copy('cc', claudeCode)}>{copied === 'cc' ? 'Copied' : 'Copy'}</button></div>
-            <h3 style="margin-top:16px">Other MCP clients (Cursor, VS Code, Windsurf)</h3>
-            <div class="snippet"><pre>{jsonCfg}</pre><button type="button" onClick={() => copy('json', jsonCfg)}>{copied === 'json' ? 'Copied' : 'Copy'}</button></div>
-            <p class="muted">Server address: <code>{mcpUrl}</code>. Clients that only support signing in with OAuth, such as custom connectors on claude.ai, cannot use tokens yet.</p>
+            <p class="muted">The instructions below now include this token, so you can copy them as they are.</p>
             <button type="button" onClick={() => setMade(null)}>Done</button>
           </div>
         ) : (
@@ -579,6 +572,7 @@ function AccessTokens({ run }: { run: (action: (pw?: string) => Promise<unknown>
           </form>
         )}
       </section>
+      <TokenGuide token={made?.token} copied={copied} copy={copy} />
       {rows && rows.length > 0 && (
         <section class="panel flush table-wrap">
           <table>
@@ -598,5 +592,55 @@ function AccessTokens({ run }: { run: (action: (pw?: string) => Promise<unknown>
         </section>
       )}
     </>
+  );
+}
+
+/** How to use a token: with an AI assistant over MCP, or from scripts over HTTP. */
+function TokenGuide({ token, copied, copy }: { token?: string; copied: string; copy: (k: string, v: string) => void }) {
+  const t = token ?? 'YOUR_TOKEN';
+  const mcpUrl = `${location.origin}/mcp`;
+  const claudeCode = `claude mcp add --transport http opencookie ${mcpUrl} --header "Authorization: Bearer ${t}"`;
+  const desktop = JSON.stringify({ mcpServers: { opencookie: { command: 'npx', args: ['-y', 'mcp-remote', mcpUrl, '--header', 'Authorization:${AUTH}'], env: { AUTH: `Bearer ${t}` } } } }, null, 2);
+  const editors = JSON.stringify({ mcpServers: { opencookie: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${t}` } } } }, null, 2);
+  const curl = `curl -H "Authorization: Bearer ${t}" ${location.origin}/admin/api/sites`;
+  const snip = (k: string, v: string) => (
+    <div class="snippet"><pre>{v}</pre><button type="button" onClick={() => copy(k, v)}>{copied === k ? 'Copied' : 'Copy'}</button></div>
+  );
+  return (
+    <section class="panel token-guide">
+      <h2 style="margin-top:0">How to use a token</h2>
+      <p class="muted">
+        {token ? 'These include the token you just made.' : <>Replace <code>YOUR_TOKEN</code> with a token. It starts with <code>oc_pat_</code> and is shown once, when you create it.</>}
+      </p>
+      <details open>
+        <summary>Claude Code</summary>
+        <p>Run this in a terminal, then start <code>claude</code> and ask about your sites.</p>
+        {snip('cc', claudeCode)}
+      </details>
+      <details>
+        <summary>Claude Desktop</summary>
+        <p>Open Settings → Developer → Edit Config, add this to <code>claude_desktop_config.json</code> and restart Claude. It needs Node.js installed.</p>
+        {snip('desktop', desktop)}
+      </details>
+      <details>
+        <summary>Cursor, VS Code, Windsurf and other MCP clients</summary>
+        <p>Add this to the client's MCP settings (for example <code>.cursor/mcp.json</code>).</p>
+        {snip('editors', editors)}
+      </details>
+      <details>
+        <summary>Your own scripts (HTTP API)</summary>
+        <p>The token works with the dashboard's API under <code>/admin/api/</code>. This lists your sites:</p>
+        {snip('curl', curl)}
+        <p class="muted">Other useful calls: <code>GET /admin/api/sites/ID/cookies</code>, <code>GET /admin/api/sites/ID/compliance</code>, <code>POST /admin/api/sites/ID/scans</code>, and <code>POST /admin/api/sites/ID/cookies/review</code> with <code>{'{"items": [{"cookieId": 12, "category": "statistics"}]}'}</code>.</p>
+      </details>
+      <h3>Things to ask the assistant</h3>
+      <ul class="muted">
+        <li>Which of my sites have compliance problems?</li>
+        <li>Which cookies on example.nl still need a category? Suggest one for each and explain why.</li>
+        <li>Scan example.nl again and tell me what changed.</li>
+        <li>How many visitors accepted or rejected cookies last month?</li>
+      </ul>
+      <p class="muted">Claude.ai custom connectors and other clients that only sign in with OAuth can't use tokens yet. Server address: <code>{mcpUrl}</code></p>
+    </section>
   );
 }

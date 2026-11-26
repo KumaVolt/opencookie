@@ -180,3 +180,21 @@ export const RULE_PACKS: RulePack[] = [
 export function getRulePack(id: string): RulePack {
   return RULE_PACKS.find((p) => p.id === id) ?? RULE_PACKS[0]!;
 }
+
+/** EU member states plus Iceland, Liechtenstein and Norway: the "EU" key in a site's country rules. */
+export const EU_EEA = ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'LI', 'NO'];
+
+/**
+ * The rule pack for a visitor. A rule for the exact country wins over the "EU" group; with no
+ * matching rule, or when the country is unknown, the site's own rule pack applies.
+ */
+export function packIdFor(site: { rulePack: string; countryPacks: Record<string, string> }, country: string | null): string {
+  if (!country) return site.rulePack;
+  const c = country.toUpperCase() === 'UK' ? 'GB' : country.toUpperCase();
+  return site.countryPacks[c] ?? (EU_EEA.includes(c) ? site.countryPacks.EU : undefined) ?? site.rulePack;
+}
+
+/** Packs a site can serve: its own plus the ones in its country rules. */
+export function sitePackIds(site: { rulePack: string; countryPacks: Record<string, string> }): string[] {
+  return [...new Set([site.rulePack, ...Object.values(site.countryPacks)])];
+}

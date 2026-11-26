@@ -23,6 +23,8 @@ export interface ComplianceInput {
 /** Categories that may run before consent for this site. */
 export function exemptCategories(site: Site, pack: RulePack = getRulePack(site.rulePack)): Category[] {
   const set = new Set<Category>(pack.exemptCategories);
+  // The owner confirmed the conditions of the site's own rule pack, not those of its country rules.
+  if (pack.id !== site.rulePack) return [...set];
   for (const c of pack.conditionalExemptCategories) {
     if (site.exemptConfirmed.includes(c.category)) set.add(c.category);
   }

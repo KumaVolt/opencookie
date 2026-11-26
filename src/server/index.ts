@@ -6,7 +6,7 @@ import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { CATEGORIES, isCategory, type Category } from '../core/categories.ts';
 import { checkCompliance } from '../core/compliance.ts';
-import { RULE_PACKS, getRulePack } from '../core/rulepacks.ts';
+import { RULE_PACKS, getRulePack, packIdFor, sitePackIds } from '../core/rulepacks.ts';
 import { SUPPORTED_LOCALES, TEMPLATES } from '../core/templates/index.ts';
 import type { CookieMatcher } from '../core/cookiedb.ts';
 import type { ConsentRecord, Site } from '../core/types.ts';
@@ -15,6 +15,7 @@ import { registerAuth } from './auth.ts';
 import { config } from './config.ts';
 import { downloadCookieDb, loadMatcher, loadTranslations } from './data.ts';
 import { hostBelongsToSite, openDb, type SiteInput } from './db.ts';
+import { ensureGeoDb, visitorCountry } from './geo.ts';
 import { buildBannerConfig, cookiePolicyMarkdown, markdownToHtml, pickLocale, policyPage } from './render.ts';
 import { registerMcp } from './mcp.ts';
 import { ScanQueue } from './scans.ts';
@@ -65,10 +66,14 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     if (!site) return reply.code(404).send('console.warn("OpenCookie: unknown site key");');
     const bundle = readBundle();
     if (!bundle) return reply.code(500).send('console.error("OpenCookie: banner not built");');
-    const cfg = buildBannerConfig(site, db.listCookies(site.id), undefined, translations, null);
+    // With country rules the script differs per visitor, so only the visitor's own browser may cache it.
+    const byCountry = Object.keys(site.countryPacks).length > 0;
+    const packId = byCountry ? packIdFor(site, visitorCountry(req.ip, req.headers)) : site.rulePack;
+    const cfg = buildBannerConfig(site, db.listCookies(site.id), undefined, translations, null, packId);
     const boot: Boot = {
       key: site.key,
       api: config.publicUrl,
+      pack: cfg.rulePack,
       policyVersion: cfg.policyVersion,
       model: cfg.model,
       exempt: cfg.exempt,
@@ -80,15 +85,15 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
       blockRules: cfg.blockRules,
       cookieNames: cfg.cookieNames,
     };
-    reply.header('Cache-Control', 'public, max-age=300');
+    reply.header('Cache-Control', `${byCountry ? 'private' : 'public'}, max-age=300`);
     return reply.send(`window.__OC_BOOT=${JSON.stringify(boot).replace(/</g, '\\u003c')};\n${bundle}`);
   });
 
-  app.get<{ Params: { key: string }; Querystring: { lang?: string } }>('/api/v1/sites/:key/config', async (req, reply) => {
+  app.get<{ Params: { key: string }; Querystring: { lang?: string; pack?: string } }>('/api/v1/sites/:key/config', async (req, reply) => {
     const site = db.getSiteByKey(req.params.key);
     if (!site) return reply.code(404).send({ error: 'Unknown site' });
     const lang = req.query.lang ?? req.headers['accept-language']?.split(',')[0];
-    const cfg = buildBannerConfig(site, db.listCookies(site.id), lang, translations, db.latestFinishedScan(site.id)?.finishedAt ?? null);
+    const cfg = buildBannerConfig(site, db.listCookies(site.id), lang, translations, db.latestFinishedScan(site.id)?.finishedAt ?? null, req.query.pack);
     reply.header('Access-Control-Allow-Origin', '*').header('Cache-Control', 'public, max-age=60').header('Vary', 'Accept-Language');
     return cfg;
   });
@@ -154,6 +159,9 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
       url: String(b.url ?? '').slice(0, 500),
       ipHash: hashIp(req.ip),
       userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300),
+      // Only sites with country rules need the country, so only those record it.
+      country: Object.keys(site.countryPacks).length ? visitorCountry(req.ip, req.headers) ?? '' : '',
+      rulePack: typeof b.pack === 'string' && sitePackIds(site).includes(b.pack) ? b.pack : site.rulePack,
     });
     return reply.code(204).send();
   });
@@ -232,6 +240,7 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     const before = siteOf(req);
     const id = before.id;
     const site = db.updateSite(id, sanitiseSiteInput(req.body))!;
+    if (Object.keys(site.countryPacks).length) void ensureGeoDb();
     // Purposes or texts changed → ask visitors again.
     if (JSON.stringify(before.textOverrides) !== JSON.stringify(site.textOverrides) || before.rulePack !== site.rulePack || JSON.stringify(before.exemptConfirmed) !== JSON.stringify(site.exemptConfirmed)) {
       db.bumpPolicyVersion(id);
@@ -303,6 +312,32 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     return c;
   });
 
+  // Categorise or confirm several cookies at once, e.g. the unknown ones after a scan.
+  // An item without a category confirms the one the scanner suggested.
+  app.post<{ Params: { id: string }; Body: { items?: unknown } }>('/admin/api/sites/:id/cookies/review', async (req, reply) => {
+    const site = siteOf(req);
+    const items = Array.isArray(req.body?.items) ? (req.body.items as Record<string, unknown>[]) : null;
+    if (!items?.length || items.length > 500) return reply.code(400).send({ error: 'Send items: [{ cookieId, category? }]' });
+    const todo = items.map((b) => ({ b, c: db.getCookie(Number(b?.cookieId)) }));
+    const bad = todo.find(({ b, c }) => !c || c.siteId !== site.id || (b.category !== undefined && !isCategory(b.category)));
+    if (bad) return reply.code(400).send({ error: `Unknown cookie or category: ${String(bad.b?.cookieId)}` });
+    const changed: string[] = [];
+    const out = todo.map(({ b, c }) => {
+      const n = db.updateCookie(c!.id, {
+        category: isCategory(b.category) ? b.category : undefined,
+        provider: typeof b.provider === 'string' ? b.provider : undefined,
+        description: typeof b.description === 'string' ? b.description : undefined,
+        retention: typeof b.retention === 'string' ? b.retention : undefined,
+      })!;
+      if (n.category !== c!.category) changed.push(`${n.name}: ${c!.category} → ${n.category}`);
+      return n;
+    });
+    // A new category means visitors are asked again, once for the whole batch.
+    if (changed.length) db.bumpPolicyVersion(site.id);
+    auth.audit(req, 'cookies_reviewed', { orgId: site.orgId, siteId: site.id, detail: changed.length ? changed.join('; ') : `${out.length} confirmed` });
+    return { reviewed: out.length, categoryChanged: changed.length, cookies: out };
+  });
+
   app.delete<{ Params: { id: string; cookieId: string } }>('/admin/api/sites/:id/cookies/:cookieId', async (req) => {
     const c = db.getCookie(Number(req.params.cookieId));
     if (c && c.siteId === Number(req.params.id)) {
@@ -355,8 +390,8 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     auth.audit(req, 'consents_exported', { orgId: siteOf(req).orgId, siteId });
     const q = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`;
     const csv = [
-      'created_at,consent_id,action,categories,policy_version,locale,gpc,url,ip_hash,user_agent',
-      ...rows.map((r) => [r.createdAt, r.consentId, r.action, r.categories.join(' '), r.policyVersion, r.locale, r.gpc, r.url, r.ipHash, r.userAgent].map(q).join(',')),
+      'created_at,consent_id,action,categories,policy_version,locale,gpc,url,ip_hash,user_agent,country,rule_pack',
+      ...rows.map((r) => [r.createdAt, r.consentId, r.action, r.categories.join(' '), r.policyVersion, r.locale, r.gpc, r.url, r.ipHash, r.userAgent, r.country, r.rulePack].map(q).join(',')),
     ].join('\n');
     reply.header('Content-Disposition', `attachment; filename="consents-site-${siteId}.csv"`);
     return reply.type('text/csv; charset=utf-8').send(csv);
@@ -457,11 +492,16 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
   app.get('/admin', async (_req, reply) => reply.redirect('/admin/'));
   app.get('/admin/', sendAdmin);
 
-  // Daily housekeeping: delete consent records past the rule pack's retention period.
+  // Daily housekeeping: delete consent records past the longest retention of the site's rule packs,
+  // and keep the country database fresh while any site uses country rules.
   const purge = () => {
-    for (const s of db.listSites()) {
-      const days = getRulePack(s.rulePack).consentLogRetentionDays;
+    const sites = db.listSites();
+    for (const s of sites) {
+      const days = Math.max(...sitePackIds(s).map((p) => getRulePack(p).consentLogRetentionDays));
       db.purgeConsents(s.id, new Date(Date.now() - days * 86_400_000).toISOString());
+    }
+    if (sites.some((s) => Object.keys(s.countryPacks).length)) {
+      void ensureGeoDb().then(() => visitorCountry('0.0.0.0', {})); // load the table now, not on a visitor's request
     }
   };
   purge();
@@ -487,6 +527,13 @@ function sanitiseSiteInput(b: unknown): SiteInput {
   if (typeof i.domain === 'string') out.domain = i.domain;
   if (Array.isArray(i.extraDomains)) out.extraDomains = i.extraDomains.filter((d): d is string => typeof d === 'string' && d.trim() !== '');
   if (typeof i.rulePack === 'string' && RULE_PACKS.some((p) => p.id === i.rulePack)) out.rulePack = i.rulePack;
+  if (isStringRecord(i.countryPacks)) {
+    out.countryPacks = {};
+    for (const [k, v] of Object.entries(i.countryPacks)) {
+      const code = k.trim().toUpperCase() === 'UK' ? 'GB' : k.trim().toUpperCase();
+      if ((code === 'EU' || /^[A-Z]{2}$/.test(code)) && RULE_PACKS.some((p) => p.id === v)) out.countryPacks[code] = v;
+    }
+  }
   if (Array.isArray(i.locales)) {
     const l = i.locales.filter((x): x is string => typeof x === 'string' && SUPPORTED_LOCALES.includes(x));
     if (l.length) out.locales = l;

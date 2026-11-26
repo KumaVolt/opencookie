@@ -295,7 +295,7 @@ function SitePage({ id, tab, meta, onScope }: { id: number; tab: string; meta: M
         {TABS.map(([k, label]) => <a href={`#/sites/${id}/${k}`} class={tab === k ? 'active' : ''} aria-current={tab === k ? 'page' : undefined}>{label}</a>)}
       </nav>
       {tab === 'overview' && <Overview site={site} />}
-      {tab === 'cookies' && <Cookies site={site} meta={meta} />}
+      {tab === 'cookies' && <Cookies site={site} meta={meta} readOnly={site.yourRole === 'viewer'} />}
       {tab === 'scans' && <Scans site={site} />}
       {tab === 'settings' && <fieldset class="bare" disabled={site.yourRole === 'viewer'}><Settings site={site} meta={meta} onSaved={(x) => setSite(x as SiteFull)} canDelete={site.yourRole === 'owner'} /></fieldset>}
       {tab === 'texts' && <fieldset class="bare" disabled={site.yourRole === 'viewer'}><Texts site={site} meta={meta} onSaved={(x) => setSite(x as SiteFull)} /></fieldset>}
@@ -353,19 +353,40 @@ function Overview({ site }: { site: Site }) {
   );
 }
 
-function Cookies({ site, meta }: { site: Site; meta: Meta }) {
+function Cookies({ site, meta, readOnly }: { site: Site; meta: Meta; readOnly: boolean }) {
   const [rows, setRows] = useState<CookieRow[] | null>(null);
+  // Category picked for each unknown cookie; starts at the scanner's suggestion.
+  const [picks, setPicks] = useState<Record<number, string>>({});
+  const [err, setErr] = useState('');
   const [editing, setEditing] = useState<CookieRow | null>(null);
   const [adding, setAdding] = useState(false);
   const load = () => api<CookieRow[]>('GET', `/sites/${site.id}/cookies`).then(setRows);
   useEffect(() => void load(), [site.id]);
   const otherLocales = site.locales.filter((l) => l !== 'en');
+  const unknown = rows?.filter((c) => !c.ocdId && !c.reviewed) ?? [];
+  const review = (list: CookieRow[]) => {
+    setErr('');
+    const items = list.map((c) => ({ cookieId: c.id, category: picks[c.id] ?? c.category }));
+    const changes = items.filter((i, n) => i.category !== list[n]!.category).length;
+    if (changes && !confirm(`${changes === 1 ? 'A category changes' : `${changes} categories change`}, so visitors are asked for consent again. Continue?`)) return;
+    api('POST', `/sites/${site.id}/cookies/review`, { items }).then(() => { setPicks({}); void load(); }).catch((x: Error) => setErr(x.message));
+  };
   return (
     <>
       <div class="toolbar">
         <p class="muted" style="margin:0">Cookies found by scans or added by hand. Unknown cookies count as marketing until you review them.</p>
-        <button onClick={() => setAdding(true)}>Add cookie</button>
+        {!readOnly && <button onClick={() => setAdding(true)}>Add cookie</button>}
       </div>
+      {unknown.length > 0 && !readOnly && (
+        <div class="panel review-bar">
+          <p style="margin:0">
+            <strong>{unknown.length === 1 ? '1 cookie needs' : `${unknown.length} cookies need`} a category.</strong>{' '}
+            They aren't in the Open Cookie Database. Check the suggested category next to each one, change it where it's wrong, then confirm.
+          </p>
+          <button class="primary" onClick={() => review(unknown)}>Confirm {unknown.length === 1 ? 'it' : `all ${unknown.length}`}</button>
+        </div>
+      )}
+      {err && <p class="error-text" role="alert">{err}</p>}
       {adding && <CookieForm site={site} meta={meta} onClose={() => { setAdding(false); void load(); }} />}
       {editing && <CookieForm site={site} meta={meta} cookie={editing} onClose={() => { setEditing(null); void load(); }} />}
       <div class="panel table-wrap">
@@ -386,8 +407,16 @@ function Cookies({ site, meta }: { site: Site; meta: Meta }) {
                 <td>
                   {c.setBeforeConsent && c.category !== 'necessary' && <div><span class="badge error">before consent</span></div>}
                   {c.ocdId ? <span class="badge ok">in database</span> : c.reviewed ? <span class="badge ok">reviewed</span> : <span class="badge warning">unknown</span>}
+                  {!c.ocdId && !c.reviewed && !readOnly && (
+                    <div class="quick-review">
+                      <select aria-label={`Category for ${c.name}`} value={picks[c.id] ?? c.category} onChange={(e) => setPicks({ ...picks, [c.id]: e.currentTarget.value })}>
+                        {meta.categories.map((x) => <option value={x}>{x}</option>)}
+                      </select>
+                      <button onClick={() => review([c])}>Confirm</button>
+                    </div>
+                  )}
                 </td>
-                <td><button onClick={() => setEditing(c)}>Edit</button></td>
+                <td>{!readOnly && <button onClick={() => setEditing(c)}>Edit</button>}</td>
               </tr>
             ))}
             {rows?.length === 0 && <tr><td colSpan={7} class="muted">No cookies yet. Run a scan.</td></tr>}
@@ -527,7 +556,7 @@ function Settings({ site, meta, onSaved, canDelete }: { site: Site; meta: Meta; 
         {sec === 'rules' && (
           <section class="panel">
             <h2>Rules & exemptions</h2>
-            <Field label="Rule pack" hint="The country rules the compliance check and the banner follow.">
+            <Field label="Rule pack" hint="The rules the compliance check and the banner follow.">
               <select value={s.rulePack} onChange={(e) => setS({ ...s, rulePack: e.currentTarget.value, exemptConfirmed: [] })}>
                 {meta.rulePacks.map((p) => <option value={p.id}>{p.name}</option>)}
               </select>
@@ -539,6 +568,7 @@ function Settings({ site, meta, onSaved, canDelete }: { site: Site; meta: Meta; 
                 <ul class="muted">{c.conditions.map((x) => <li>{x}</li>)}</ul>
               </div>
             )) : <p class="muted">These rules have no optional exemptions.</p>}
+            <CountryRules s={s} setS={setS} packs={meta.rulePacks} />
           </section>
         )}
         {sec === 'languages' && (
@@ -689,7 +719,7 @@ function Consents({ site }: { site: Site }) {
       </div>
       <div class="panel table-wrap">
         <table>
-          <thead><tr><th>Time</th><th>Consent ID</th><th>Choice</th><th>Categories</th><th>Version</th><th>Language</th><th>Page</th></tr></thead>
+          <thead><tr><th>Time</th><th>Consent ID</th><th>Choice</th><th>Categories</th><th>Version</th><th>Language</th><th>Country</th><th>Page</th></tr></thead>
           <tbody>
             {data?.rows.map((r) => (
               <tr>
@@ -699,10 +729,11 @@ function Consents({ site }: { site: Site }) {
                 <td>{r.categories.join(', ')}</td>
                 <td>{r.policyVersion}</td>
                 <td>{r.locale}</td>
+                <td title={r.rulePack}>{r.country || '—'}</td>
                 <td class="muted">{r.url}</td>
               </tr>
             ))}
-            {data?.rows.length === 0 && <tr><td colSpan={7} class="muted">No consent records.</td></tr>}
+            {data?.rows.length === 0 && <tr><td colSpan={8} class="muted">No consent records.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -718,3 +749,61 @@ function Consents({ site }: { site: Site }) {
 }
 
 render(<App />, document.getElementById('app')!);
+
+/** Every region code the browser has a name for, sorted by name. */
+const COUNTRIES: { code: string; name: string }[] = (() => {
+  const names = new Intl.DisplayNames(['en'], { type: 'region', fallback: 'none' });
+  const out: { code: string; name: string }[] = [];
+  const A = 65;
+  for (let i = 0; i < 26; i++) for (let j = 0; j < 26; j++) {
+    const code = String.fromCharCode(A + i, A + j);
+    const name = code === 'EU' ? undefined : names.of(code);
+    if (name && !/^(EZ|UN|QO|XA|XB|ZZ)$/.test(code)) out.push({ code, name });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+})();
+const countryName = (code: string) => (code === 'EU' ? 'EU and EEA' : COUNTRIES.find((c) => c.code === code)?.name ?? code);
+
+function CountryRules({ s, setS, packs }: { s: Site; setS: (s: Site) => void; packs: RulePack[] }) {
+  const rows = Object.entries(s.countryPacks);
+  const [add, setAdd] = useState('');
+  const set = (next: Record<string, string>) => setS({ ...s, countryPacks: next });
+  const free = [{ code: 'EU', name: 'EU and EEA' }, ...COUNTRIES].filter((c) => !(c.code in s.countryPacks));
+  return (
+    <div class="country-rules">
+      <h3>Rules per visitor country</h3>
+      <p class="muted">
+        Visitors from these countries get other rules, for example opt-out for the US. Everyone else, and anyone whose country
+        can't be found (a VPN, say), gets the rule pack above. Exemptions you confirmed above don't apply to these rules.
+      </p>
+      {rows.length > 0 && (
+        <table>
+          <tbody>
+            {rows.map(([code, pack]) => (
+              <tr>
+                <td>{countryName(code)}</td>
+                <td>
+                  <select aria-label={`Rules for ${countryName(code)}`} value={pack} onChange={(e) => set({ ...s.countryPacks, [code]: e.currentTarget.value })}>
+                    {packs.map((p) => <option value={p.id}>{p.name}</option>)}
+                  </select>
+                </td>
+                <td><button type="button" class="link" onClick={() => { const n = { ...s.countryPacks }; delete n[code]; set(n); }}>Remove</button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div class="row-inline">
+        <select aria-label="Add a country" value={add} onChange={(e) => setAdd(e.currentTarget.value)}>
+          <option value="">Add a country…</option>
+          {free.map((c) => <option value={c.code}>{c.name}</option>)}
+        </select>
+        <button type="button" class="btn" disabled={!add} onClick={() => {
+          const guess = add === 'US' ? 'us-gpc' : add === 'GB' ? 'uk-duaa' : add === 'FR' ? 'fr-cnil' : add === 'DE' ? 'de-tdddg' : add === 'NL' ? 'nl-ap' : 'eu-edpb';
+          set({ ...s.countryPacks, [add]: packs.some((p) => p.id === guess) ? guess : s.rulePack });
+          setAdd('');
+        }}>Add</button>
+      </div>
+    </div>
+  );
+}

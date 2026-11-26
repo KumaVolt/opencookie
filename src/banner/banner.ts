@@ -11,6 +11,8 @@ import { css } from './styles.ts';
 export interface Boot {
   key: string;
   api: string;
+  /** Rule pack chosen for this visitor (the site's own, or a country rule). */
+  pack: string;
   policyVersion: number;
   model: 'opt-in' | 'opt-out';
   exempt: Category[];
@@ -30,6 +32,8 @@ interface Stored {
   c: Category[];
   t: number;
   a: Action;
+  /** Consent model the choice was made under. Missing in records from before country rules. */
+  m?: 'opt-in' | 'opt-out';
 }
 
 interface Api {
@@ -75,6 +79,8 @@ const COOKIE = 'oc_consent';
   // ------------------------------------------------------------------ state
   function storedIsValid(s: Stored | null): s is Stored {
     if (!s || s.v !== boot!.policyVersion) return false;
+    // A choice made under opt-out rules (say, in the US) is not consent where opt-in applies.
+    if (s.m === 'opt-out' && boot!.model === 'opt-in') return false;
     const refusedEverything = s.c.every((c) => boot!.exempt.includes(c));
     const maxDays = refusedEverything ? boot!.refusalReaskDays : boot!.consentMaxAgeDays;
     return Date.now() - s.t < maxDays * 86_400_000;
@@ -315,7 +321,7 @@ const COOKIE = 'oc_consent';
   function save(categories: Category[], action: Action) {
     const before = grantedList();
     const c = uniq<Category>(['necessary', ...boot!.exempt, ...categories.filter((x) => ALL.includes(x))]);
-    const next: Stored = { id: stored?.id || readStored()?.id || newId(), v: boot!.policyVersion, c, t: Date.now(), a: action };
+    const next: Stored = { id: stored?.id || readStored()?.id || newId(), v: boot!.policyVersion, c, t: Date.now(), a: action, m: boot!.model };
     stored = next;
     writeStored(next);
     log(next);
@@ -335,7 +341,7 @@ const COOKIE = 'oc_consent';
     unblock();
   }
   function log(s: Stored) {
-    const body = JSON.stringify({ id: s.id, action: s.a, categories: s.c, policyVersion: s.v, locale: config?.locale ?? '', gpc, url: location.href.split('?')[0] });
+    const body = JSON.stringify({ id: s.id, action: s.a, categories: s.c, policyVersion: s.v, pack: boot!.pack, locale: config?.locale ?? '', gpc, url: location.href.split('?')[0] });
     const url = `${boot!.api}/api/v1/sites/${boot!.key}/consent`;
     const blob = new Blob([body], { type: 'text/plain' });
     if (!navigator.sendBeacon?.(url, blob)) fetch(url, { method: 'POST', body, keepalive: true, mode: 'cors' }).catch(() => {});
@@ -584,7 +590,7 @@ const COOKIE = 'oc_consent';
   window.OpenCookie = api;
 
   const lang = document.documentElement.lang || navigator.language || '';
-  const configReady = fetch(`${boot.api}/api/v1/sites/${boot.key}/config?lang=${encodeURIComponent(lang)}`)
+  const configReady = fetch(`${boot.api}/api/v1/sites/${boot.key}/config?lang=${encodeURIComponent(lang)}&pack=${encodeURIComponent(boot.pack)}`)
     .then((r) => (r.ok ? (r.json() as Promise<BannerConfig>) : null))
     .catch(() => null);
 

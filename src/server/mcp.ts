@@ -72,9 +72,16 @@ const TOOLS: Tool[] = [
   {
     name: 'list_cookies',
     title: 'List cookies',
-    description: 'Cookies and storage items of a site, with category, provider, purpose and retention.',
-    inputSchema: { type: 'object', properties: siteArg, required: ['siteId'] },
-    run: (a, call) => call('GET', `/sites/${num(a.siteId, 'siteId')}/cookies`),
+    description: 'Cookies and storage items of a site, with category, provider, purpose and retention. "unknown" ones are not in the Open Cookie Database and nobody has checked them yet; until then they count as marketing in the compliance check.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...siteArg, unknownOnly: { type: 'boolean', description: 'Only cookies that still need a category checked.' } },
+      required: ['siteId'],
+    },
+    run: async (a, call) => {
+      const rows = (await call('GET', `/sites/${num(a.siteId, 'siteId')}/cookies`)) as Json[];
+      return a.unknownOnly ? rows.filter((c) => !c.ocdId && !c.reviewed) : rows;
+    },
   },
   {
     name: 'list_scans',
@@ -146,6 +153,7 @@ const TOOLS: Tool[] = [
         ...siteArg,
         name: { type: 'string' },
         rulePack: { type: 'string', description: 'Rule pack id from list_rule_packs.' },
+        countryRules: { type: 'object', additionalProperties: { type: 'string' }, description: 'Other rule packs by visitor country, replacing the current ones: two-letter codes such as US or GB, or EU for the EU and EEA, each mapped to a rule pack id, e.g. {"US": "us-gpc"}. Pass {} to remove them. Visitors from elsewhere, or whose country is unknown, get rulePack.' },
         languages: { type: 'array', items: { type: 'string' }, description: 'Banner languages.' },
         defaultLanguage: { type: 'string' },
         privacyPolicyUrl: { type: 'string', description: 'URL of the cookie or privacy policy linked from the banner.' },
@@ -166,6 +174,7 @@ const TOOLS: Tool[] = [
       const cur = (await call('GET', `/sites/${sid}`)) as { theme: Json };
       const patch: Json = {};
       for (const k of ['name', 'rulePack', 'privacyPolicyUrl', 'contact', 'autoBlock', 'consentMode'] as const) if (a[k] !== undefined) patch[k] = a[k];
+      if (a.countryRules !== undefined) patch.countryPacks = a.countryRules;
       if (a.languages !== undefined) patch.locales = a.languages;
       if (a.defaultLanguage !== undefined) patch.defaultLocale = a.defaultLanguage;
       if (a.layout !== undefined || a.buttonColour !== undefined || a.backgroundColour !== undefined || a.textColour !== undefined || a.cookieButton !== undefined) {
@@ -207,9 +216,46 @@ const TOOLS: Tool[] = [
       }),
   },
   {
+    name: 'categorise_cookies',
+    title: 'Categorise cookies',
+    description:
+      'Sets or confirms the category of several cookies at once, typically the unknown ones from list_cookies with unknownOnly. ' +
+      'Leave out category to confirm the one the scanner suggested. Look at the provider and name first: a cookie that tracks visitors is never necessary. ' +
+      'A changed category asks visitors for consent again.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...siteArg,
+        cookies: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              cookieId: id('Cookie id, from list_cookies.'),
+              category: { type: 'string', enum: ['necessary', 'preferences', 'statistics', 'marketing'] },
+              provider: { type: 'string' },
+              purpose: { type: 'string', description: 'What it does, in plain words.' },
+              retention: { type: 'string' },
+            },
+            required: ['cookieId'],
+          },
+        },
+      },
+      required: ['siteId', 'cookies'],
+    },
+    write: true,
+    run: async (a, call) => {
+      if (!Array.isArray(a.cookies) || !a.cookies.length) throw new Error('cookies must be a non-empty list');
+      const r = (await call('POST', `/sites/${num(a.siteId, 'siteId')}/cookies/review`, {
+        items: (a.cookies as Json[]).map((c) => ({ cookieId: c.cookieId, category: c.category, provider: c.provider, description: c.purpose, retention: c.retention })),
+      })) as Json;
+      return { reviewed: r.reviewed, categoryChanged: r.categoryChanged };
+    },
+  },
+  {
     name: 'update_cookie',
     title: 'Change a cookie',
-    description: 'Changes the category, provider, purpose or retention of a cookie. A new category asks visitors for consent again.',
+    description: 'Changes the category, provider, purpose or retention of a cookie, and marks it as checked. A new category asks visitors for consent again.',
     inputSchema: {
       type: 'object',
       properties: {

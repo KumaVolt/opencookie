@@ -345,3 +345,18 @@ table.clickable tbody tr:hover td { background: var(--sunken); }
 /* A short explanation that belongs to the setting above it. */
 .note { border-left: 3px solid var(--line-strong); padding: 2px 0 2px 14px; margin: 4px 0 8px 28px; }
 .note p { margin: 6px 0; }
+.country-rules { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 16px; }
+.country-rules h3 { margin: 0 0 4px; font-size: 1rem; }
+.country-rules table { margin: 8px 0 12px; }
+.country-rules td { vertical-align: middle; }
+.country-rules .row-inline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.country-rules .row-inline select { max-width: 280px; }
+.country-rules td:first-child { min-width: 160px; }
+.review-bar { display: flex; gap: 16px; align-items: center; justify-content: space-between; flex-wrap: wrap; border-color: var(--warn); background: var(--warn-soft); }
+.quick-review { display: flex; gap: 6px; margin-top: 6px; }
+.quick-review select { width: auto; padding: 4px 6px; }
+.quick-review button { padding: 4px 10px; }
+.token-guide details { border-top: 1px solid var(--line); padding: 10px 0; }
+.token-guide summary { cursor: pointer; font-weight: 600; }
+.token-guide details p { margin: 8px 0; }
+.token-guide h3 { margin: 16px 0 4px; font-size: 1rem; }

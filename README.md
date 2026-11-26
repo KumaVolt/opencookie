@@ -87,6 +87,7 @@ Only `PUBLIC_URL` is required.
 | `AUTO_SCAN` | `false` stops the automatic first scan of a new site. |
 | `SCAN_MAX_PAGES` | Pages per scan. Default 20. |
 | `GRAVATAR` | `true` shows Gravatar photos. Off by default, because it sends a hash of each email address to Gravatar. |
+| `GEO_HEADER` | A header with the visitor's country from your CDN, e.g. `cf-ipcountry` behind Cloudflare. Replaces the built-in lookup for country rules. |
 | `HOMEPAGE_DIR` | A folder with an `index.html` to show at `/`. Without it, `/` opens the admin. |
 | `DEEPL_API_KEY`, `LIBRETRANSLATE_URL` | For machine-translating cookie descriptions. |
 
@@ -116,6 +117,12 @@ Passkeys are tied to the host name in `PUBLIC_URL`. If you move to another domai
 After a choice, a small cookie button in the corner lets visitors change it. You can turn it off under Appearance; then put a `data-oc-open` link or the `data-oc-policy` block on every page, and the next scan checks that you did.
 
 Scripts from about 50 known services (Meta, TikTok, LinkedIn, Hotjar, Clarity, YouTube and more) are held back automatically. Google tags get Consent Mode v2. In JavaScript: `OpenCookie.hasConsent('statistics')`, `OpenCookie.onChange(fn)` and the `opencookie:change` event.
+
+## Rules per visitor country
+
+A site follows one rule pack, but under **Rules & exemptions** you can give visitors from other countries other rules: opt-out for the US, say, or the CNIL rules for France. `EU` covers the EU and EEA, and a single country beats it. Everyone else gets the site's own rule pack, and so does anyone whose country can't be found, which is the strict choice when a VPN hides it.
+
+The country is looked up on your own server in [DB-IP](https://db-ip.com)'s free country database (CC BY 4.0). It is downloaded once a month, only when a site uses country rules. Only the two-letter country is stored with a consent record. A choice made under US opt-out rules doesn't count as consent when the same visitor later gets opt-in rules.
 
 ## What it costs
 
@@ -155,7 +162,18 @@ List prices excluding VAT, read on 26 November 2026, for a small business site o
 - **Compliance check** per site, and a **consent log** with CSV export.
 - **Texts** in Dutch, English, German, French, Spanish and Italian, all editable per site.
 - **Clients and teams:** owners, editors and viewers; passkeys, authenticator apps and recovery codes; an activity log.
-- **MCP server:** connect Claude Code or another AI assistant with an access token from Your account.
+- **API and MCP server:** connect Claude Code or another AI assistant, or your own scripts, with an access token from Your account.
+
+## API and MCP
+
+Make an access token under **Your account**, read-only or read and write. It works for the same sites as your login.
+
+- **MCP:** add `https://consent.example.com/mcp` to Claude Code or another assistant, with the token as a Bearer header. It can list sites and cookies, run scans, check compliance, change settings and categorise unknown cookies (`categorise_cookies`).
+- **HTTP API:** the dashboard's own API under `/admin/api/`, with `Authorization: Bearer oc_pat_…`. For example `GET /admin/api/sites`, `GET /admin/api/sites/ID/cookies` and `POST /admin/api/sites/ID/cookies/review` with `{"items": [{"cookieId": 12, "category": "statistics"}]}`. A token can't manage accounts, people or tokens.
+
+```sh
+claude mcp add --transport http opencookie https://consent.example.com/mcp --header "Authorization: Bearer oc_pat_…"
+```
 
 ## FAQ
 

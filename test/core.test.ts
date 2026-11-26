@@ -83,7 +83,7 @@ test('every template has every key filled in', () => {
 
 test('compliance flags pre-consent cookies but respects confirmed exemptions', () => {
   const site = {
-    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'nl', locales: ['nl'],
+    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', countryPacks: {}, defaultLocale: 'nl', locales: ['nl'],
     privacyPolicyUrl: 'https://example.nl/cookies', contact: 'privacy@example.nl', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
@@ -122,7 +122,7 @@ test('the banner is only needed when a scanned site has cookies that need consen
 
   // A site whose scan found no cookies at all needs no banner; before its first scan it does.
   const site = {
-    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
+    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', countryPacks: {}, defaultLocale: 'en', locales: ['en'],
     privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
@@ -153,7 +153,7 @@ function safeRead(p: string): string | null {
 test('tracking services never count as necessary, and PostHog cookies are recognised', async () => {
   const { classify } = await import('../src/server/scans.ts');
   const site = {
-    id: 1, orgId: 1, key: 'k', name: 'Shop', domain: 'shop.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
+    id: 1, orgId: 1, key: 'k', name: 'Shop', domain: 'shop.nl', extraDomains: [], rulePack: 'nl-ap', countryPacks: {}, defaultLocale: 'en', locales: ['en'],
     privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
@@ -171,4 +171,42 @@ test('tracking services never count as necessary, and PostHog cookies are recogn
   assert.equal(hj.provider, 'static.hotjar.com');
   assert.equal(classify(f('hjActiveViewportIds'), site, none as never).category, 'marketing');
   assert.equal(classify(f('mystery'), site, none as never).category, 'marketing');
+});
+
+test('country rules pick a rule pack per visitor, and never carry over confirmed exemptions', async () => {
+  const { packIdFor } = await import('../src/core/rulepacks.ts');
+  const { parseTable, lookupIn } = await import('../src/server/geo.ts');
+  const site = {
+    id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap',
+    countryPacks: { US: 'us-gpc', GB: 'uk-duaa', EU: 'eu-edpb', FR: 'fr-cnil' }, defaultLocale: 'en', locales: ['en'],
+    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
+    textOverrides: {}, exemptConfirmed: ['statistics'], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
+  } satisfies Site;
+  assert.equal(packIdFor(site, 'US'), 'us-gpc');
+  assert.equal(packIdFor(site, 'FR'), 'fr-cnil'); // the country beats the EU group
+  assert.equal(packIdFor(site, 'DE'), 'eu-edpb');
+  assert.equal(packIdFor(site, 'uk'), 'uk-duaa');
+  assert.equal(packIdFor(site, 'JP'), 'nl-ap');
+  assert.equal(packIdFor(site, null), 'nl-ap'); // unknown country: the site's own rules
+
+  const tr = new TranslationStore();
+  const us = buildBannerConfig(site, [], 'en', tr, null, 'us-gpc');
+  assert.equal(us.model, 'opt-out');
+  assert.equal(buildBannerConfig(site, [], 'en', tr, null, 'de-tdddg').rulePack, 'nl-ap'); // not one of the site's packs
+  assert.ok(buildBannerConfig(site, [], 'en', tr, null).exempt.includes('statistics')); // confirmed for nl-ap
+  assert.ok(!buildBannerConfig(site, [], 'en', tr, null, 'uk-duaa').exempt.includes('statistics')); // not for the UK pack
+
+  const t = parseTable('0.0.0.0,0.255.255.255,ZZ\n8.8.8.0,8.8.8.255,US\n2a01:4f8::,2a01:4f8:ffff:ffff:ffff:ffff:ffff:ffff,DE\n');
+  assert.equal(lookupIn(t, '8.8.8.8'), 'US');
+  assert.equal(lookupIn(t, '::ffff:8.8.8.8'), 'US');
+  assert.equal(lookupIn(t, '8.8.9.1'), null);
+  assert.equal(lookupIn(t, '0.0.0.1'), null);
+  assert.equal(lookupIn(t, '2a01:4f8:c0c:1::2'), 'DE');
+});
+
+test('access tokens may categorise cookies but not manage accounts', async () => {
+  const { tokenAllowed } = await import('../src/server/auth.ts');
+  assert.ok(tokenAllowed('POST', '/admin/api/sites/3/cookies/review', true));
+  assert.ok(!tokenAllowed('POST', '/admin/api/sites/3/cookies/review', false));
+  assert.ok(!tokenAllowed('POST', '/admin/api/me/tokens', true));
 });

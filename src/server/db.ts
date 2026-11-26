@@ -176,6 +176,9 @@ const MIGRATIONS = [
    )`,
   `CREATE INDEX api_tokens_user ON api_tokens (user_id)`,
   `ALTER TABLE scans ADD COLUMN settings_link INTEGER`,
+  `ALTER TABLE sites ADD COLUMN country_packs TEXT NOT NULL DEFAULT '{}';
+   ALTER TABLE consents ADD COLUMN country TEXT NOT NULL DEFAULT '';
+   ALTER TABLE consents ADD COLUMN rule_pack TEXT NOT NULL DEFAULT ''`,
 ];
 
 export type Db = ReturnType<typeof openDb>;
@@ -216,6 +219,7 @@ function toSite(r: Row): Site {
     domain: String(r.domain),
     extraDomains: j(r.extra_domains, []),
     rulePack: String(r.rule_pack),
+    countryPacks: j(r.country_packs, {}),
     defaultLocale: String(r.default_locale),
     locales: j(r.locales, ['en']),
     privacyPolicyUrl: String(r.privacy_policy_url),
@@ -282,6 +286,8 @@ function toConsent(r: Row): ConsentRecord {
     url: String(r.url),
     ipHash: String(r.ip_hash),
     userAgent: String(r.user_agent),
+    country: String(r.country ?? ''),
+    rulePack: String(r.rule_pack ?? ''),
     createdAt: String(r.created_at),
   };
 }
@@ -338,7 +344,7 @@ function repo(db: DatabaseSync) {
       if (!s) return null;
       const m = { ...s, ...input };
       db.prepare(
-        `UPDATE sites SET name=?, domain=?, extra_domains=?, rule_pack=?, default_locale=?, locales=?,
+        `UPDATE sites SET name=?, domain=?, extra_domains=?, rule_pack=?, country_packs=?, default_locale=?, locales=?,
            privacy_policy_url=?, contact=?, theme=?, text_overrides=?, exempt_confirmed=?, consent_mode=?,
            auto_block=?, updated_at=? WHERE id=?`,
       ).run(
@@ -346,6 +352,7 @@ function repo(db: DatabaseSync) {
         normaliseDomain(m.domain),
         JSON.stringify(m.extraDomains.map(normaliseDomain)),
         m.rulePack,
+        JSON.stringify(m.countryPacks),
         m.defaultLocale,
         JSON.stringify(m.locales),
         m.privacyPolicyUrl,
@@ -430,7 +437,8 @@ function repo(db: DatabaseSync) {
     updateCookie(id: number, patch: Partial<Pick<SiteCookie, 'category' | 'provider' | 'description' | 'descriptionOverrides' | 'retention'>>): SiteCookie | null {
       const c = this.getCookie(id);
       if (!c) return null;
-      const m = { ...c, ...patch };
+      // Fields left out (undefined) keep their value.
+      const m = { ...c, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
       db.prepare(
         'UPDATE site_cookies SET category=?, provider=?, description=?, description_overrides=?, retention=?, reviewed=1 WHERE id=?',
       ).run(m.category, m.provider, m.description, JSON.stringify(m.descriptionOverrides), m.retention, id);
@@ -476,9 +484,9 @@ function repo(db: DatabaseSync) {
     // ---- consent log ----
     insertConsent(c: Omit<ConsentRecord, 'id' | 'createdAt'>): void {
       db.prepare(
-        `INSERT INTO consents (site_id, consent_id, policy_version, categories, action, locale, gpc, url, ip_hash, user_agent, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(c.siteId, c.consentId, c.policyVersion, JSON.stringify(c.categories), c.action, c.locale, c.gpc ? 1 : 0, c.url, c.ipHash, c.userAgent, now());
+        `INSERT INTO consents (site_id, consent_id, policy_version, categories, action, locale, gpc, url, ip_hash, user_agent, country, rule_pack, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(c.siteId, c.consentId, c.policyVersion, JSON.stringify(c.categories), c.action, c.locale, c.gpc ? 1 : 0, c.url, c.ipHash, c.userAgent, c.country, c.rulePack, now());
     },
     listConsents(siteId: number, opts: { limit?: number; offset?: number; consentId?: string } = {}): { total: number; rows: ConsentRecord[] } {
       const where = opts.consentId ? 'site_id=? AND consent_id=?' : 'site_id=?';

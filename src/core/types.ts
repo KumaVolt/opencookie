@@ -25,6 +25,11 @@ export interface Site {
   domain: string;
   extraDomains: string[];
   rulePack: string;
+  /**
+   * Other rule packs by visitor country: ISO codes such as "US" or "GB", or "EU" for the EU and EEA.
+   * Visitors from anywhere else, or whose country is unknown, get rulePack.
+   */
+  countryPacks: Record<string, string>;
   defaultLocale: string;
   locales: string[];
   privacyPolicyUrl: string;
@@ -97,6 +102,10 @@ export interface ConsentRecord {
   url: string;
   ipHash: string;
   userAgent: string;
+  /** Two-letter visitor country, when the site uses country rules. */
+  country: string;
+  /** The rule pack the visitor's banner followed. */
+  rulePack: string;
   createdAt: string;
 }
 
