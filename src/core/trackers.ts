@@ -47,4 +47,11 @@ export const EXTRA_COOKIES: { pattern: RegExp; platform: string; category: Categ
     category: 'statistics',
     description: 'Set by PostHog product analytics to recognise a visitor and their session.',
   },
+  {
+    // _hjSession_…, _hjSessionUser_…, hjViewportId, hjActiveViewportIds and similar.
+    pattern: /^_?hj[A-Z]/,
+    platform: 'Hotjar',
+    category: 'statistics',
+    description: 'Set by Hotjar to measure how visitors use the page.',
+  },
 ];

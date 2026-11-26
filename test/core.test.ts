@@ -160,5 +160,6 @@ test('tracking services never count as necessary, and PostHog cookies are recogn
   assert.equal(ph.category, 'statistics');
   assert.equal(ph.provider, 'PostHog');
   assert.equal(classify(f('__ph_opt_in_out_phc_abc'), site, none as never).category, 'statistics');
+  assert.equal(classify(f('hjActiveViewportIds'), site, none as never).category, 'statistics');
   assert.equal(classify(f('mystery'), site, none as never).category, 'marketing');
 });
