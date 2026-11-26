@@ -2,11 +2,16 @@ services:
   opencookie:
     image: ghcr.io/kumavolt/opencookie:latest
     build: .
-    shm_size: 256m
     restart: unless-stopped
     ports:
       - "8080:8080"
-    env_file: .env
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8080}
+      TZ: ${TZ:-UTC}
+    # Optional: put any other settings from the README in a .env file next to this one.
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - opencookie-data:/data
 

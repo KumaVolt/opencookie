@@ -505,5 +505,6 @@ function sanitiseSiteInput(b: unknown): SiteInput {
 if (import.meta.main) {
   const { app } = await buildServer();
   await app.listen({ port: config.port, host: config.host });
+  if (!process.env.PUBLIC_URL) console.warn('[opencookie] PUBLIC_URL is not set. Set it to the HTTPS address of this server, or the snippets for your sites will point to localhost.');
   console.log(`[opencookie] Admin: ${config.publicUrl}/admin/`);
 }

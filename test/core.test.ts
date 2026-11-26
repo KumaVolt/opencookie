@@ -143,3 +143,22 @@ function safeRead(p: string): string | null {
     return null;
   }
 }
+
+test('tracking services never count as necessary, and PostHog cookies are recognised', async () => {
+  const { classify } = await import('../src/server/scans.ts');
+  const site = {
+    id: 1, orgId: 1, key: 'k', name: 'Shop', domain: 'shop.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
+    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
+    textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
+  } satisfies Site;
+  const fake = (category: SiteCookie['category'], platform: string) => ({ match: () => ({ id: 'x', category, platform, description: 'd', retention: '1 year' }) });
+  const f = (name: string) => ({ name, domain: 'shop.nl', kind: 'cookie' as const, expiresInSeconds: 3600, setBeforeConsent: false, url: 'https://shop.nl/' });
+  assert.equal(classify(f('_hjSession_1'), site, fake('necessary', 'Hotjar') as never).category, 'statistics');
+  assert.equal(classify(f('PHPSESSID'), site, fake('necessary', 'PHP.net') as never).category, 'necessary');
+  const none = { match: () => null };
+  const ph = classify(f('ph_phc_abc_posthog'), site, none as never);
+  assert.equal(ph.category, 'statistics');
+  assert.equal(ph.provider, 'PostHog');
+  assert.equal(classify(f('__ph_opt_in_out_phc_abc'), site, none as never).category, 'statistics');
+  assert.equal(classify(f('mystery'), site, none as never).category, 'marketing');
+});

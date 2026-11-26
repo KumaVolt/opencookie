@@ -3,6 +3,7 @@ FROM node:26-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production \
     DATA_DIR=/data \
+    TZ=UTC \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY package.json package-lock.json ./

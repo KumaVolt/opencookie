@@ -43,7 +43,8 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
     throw new Error('Playwright is not installed. Run "npm install playwright && npx playwright install chromium".');
   }
   const log = opts.onProgress ?? (() => {});
-  const browser = await playwright.chromium.launch({ headless: true });
+  // /dev/shm is only 64 MB in Docker by default; without this flag Chromium crashes on big pages.
+  const browser = await playwright.chromium.launch({ headless: true, args: ['--disable-dev-shm-usage'] });
   try {
     const start = new URL(opts.startUrl);
     const queue = await initialUrls(start, opts);

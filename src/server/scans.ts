@@ -1,4 +1,5 @@
 import type { Category } from '../core/categories.ts';
+import { EXTRA_COOKIES, trackerCategory } from '../core/trackers.ts';
 import type { CookieMatcher } from '../core/cookiedb.ts';
 import type { Site } from '../core/types.ts';
 import { retentionText, scanSite } from '../scanner/scan.ts';
@@ -85,7 +86,13 @@ export function classify(
   }
   const hit = matcher.match(f.name, f.domain);
   if (hit) {
-    return { ...base(f), category: hit.category, provider: hit.platform, ocdId: hit.id, description: hit.description, retention: hit.retention || fallbackRetention(f) };
+    // A tracking service's "functional" cookie still needs consent.
+    const category = hit.category === 'necessary' ? trackerCategory(hit.platform) ?? hit.category : hit.category;
+    return { ...base(f), category, provider: hit.platform, ocdId: hit.id, description: hit.description, retention: hit.retention || fallbackRetention(f) };
+  }
+  const extra = EXTRA_COOKIES.find((x) => x.pattern.test(f.name));
+  if (extra) {
+    return { ...base(f), category: extra.category, provider: extra.platform, ocdId: null, description: extra.description, retention: fallbackRetention(f) };
   }
   const firstParty = hostBelongsToSite(f.domain, site);
   return {

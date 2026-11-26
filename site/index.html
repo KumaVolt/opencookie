@@ -308,15 +308,15 @@
           <div class="option" role="tabpanel" id="panel-docker" aria-labelledby="tab-docker" tabindex="0">
             <h3>With Docker</h3>
             <pre><code>docker run -d --name opencookie --restart unless-stopped \
-  -p 8080:8080 --shm-size 256m -v opencookie-data:/data \
+  -p 8080:8080 -v opencookie-data:/data \
   -e PUBLIC_URL=https://consent.yoursite.com \
-  -e SETUP_KEY=choose-a-long-key \
+  -e TZ=Europe/Amsterdam \
   ghcr.io/kumavolt/opencookie</code></pre>
-            <p>Point your HTTPS proxy at port 8080, open <code>/admin/</code> on your domain and enter the setup key. Runs on amd64 and arm64.</p>
+            <p>Point your HTTPS proxy at port 8080, run <code>docker logs opencookie</code> for the setup key, then open <code>/admin/</code> on your domain. Runs on amd64 and arm64.</p>
           </div>
           <div class="option" role="tabpanel" id="panel-ai" aria-labelledby="tab-ai" tabindex="0">
             <h3>With your AI assistant</h3>
-            <p class="prompt" id="ai-prompt">Install OpenCookie on this server with Docker, using the image ghcr.io/kumavolt/opencookie (docs: github.com/KumaVolt/opencookie). Serve it on https://consent.yoursite.com with HTTPS, set PUBLIC_URL and a long random SETUP_KEY, keep /data on a volume, and tell me the setup key when it runs.</p>
+            <p class="prompt" id="ai-prompt">Install OpenCookie on this server with Docker, using the image ghcr.io/kumavolt/opencookie (docs: github.com/KumaVolt/opencookie). Serve it on https://consent.yoursite.com with HTTPS, set PUBLIC_URL and TZ, keep /data on a volume, and tell me the setup key from the container log.</p>
             <button class="copy" type="button" data-copy="ai-prompt">Copy prompt</button>
             <p>Paste it into Claude Code, Codex or another coding assistant on your server. Change the domain to yours.</p>
           </div>
