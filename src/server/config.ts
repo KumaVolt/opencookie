@@ -54,6 +54,8 @@ export const config = {
   smtpUrl: process.env.SMTP_URL ?? '',
   mailFrom: process.env.MAIL_FROM ?? '',
   sessionHours: Number(process.env.SESSION_HOURS ?? 12),
+  /** Optional folder with a public homepage (index.html plus files), served at / instead of redirecting to the admin. */
+  homepageDir: process.env.HOMEPAGE_DIR ? resolve(process.env.HOMEPAGE_DIR) : '',
   /** Show Gravatar photos. Off by default: it sends a hash of each email address to Gravatar. */
   gravatar: /^(1|true|yes)$/i.test(process.env.GRAVATAR ?? ''),
 };

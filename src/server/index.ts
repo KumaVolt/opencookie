@@ -428,7 +428,16 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean } = 
     existsSync(join(config.distDir, 'admin/index.html'))
       ? reply.type('text/html; charset=utf-8').sendFile('admin/index.html')
       : reply.code(500).send('Admin UI not built. Run "npm run build".');
-  app.get('/', async (_req, reply) => reply.redirect('/admin/'));
+  // A homepage of your own at /, with its files under /site/. Without one, / opens the admin.
+  const homepage = config.homepageDir && existsSync(join(config.homepageDir, 'index.html')) ? config.homepageDir : '';
+  if (homepage) {
+    await app.register(fastifyStatic, { root: homepage, prefix: '/site/', decorateReply: false, index: false, maxAge: 3600 * 1000 });
+  }
+  app.get('/', async (_req, reply) => {
+    if (!homepage) return reply.redirect('/admin/');
+    reply.header('Cache-Control', 'public, max-age=300').type('text/html; charset=utf-8');
+    return readFileSync(join(homepage, 'index.html'), 'utf8');
+  });
   app.get('/admin', async (_req, reply) => reply.redirect('/admin/'));
   app.get('/admin/', sendAdmin);
 

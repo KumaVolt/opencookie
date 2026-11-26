@@ -99,7 +99,7 @@ How the figures were worked out:
 You need Docker, a domain name for the consent server (for example `consent.example.com`), and HTTPS in front of it (Caddy, Traefik or nginx).
 
 ```sh
-git clone https://github.com/YOUR-ORG/opencookie.git && cd opencookie
+git clone https://github.com/KumaVolt/opencookie.git && cd opencookie
 cp .env.example .env    # set PUBLIC_URL, SETUP_KEY and SECRET
 docker compose up -d
 ```
@@ -123,6 +123,7 @@ Open `PUBLIC_URL/admin/`, enter the setup key and create the first admin account
 | `SMTP_URL`, `MAIL_FROM` | Optional, for sending invitations and password reset emails, e.g. `smtps://user:pass@smtp.example.com:465`. Without them you copy invitation links yourself. |
 | `REQUIRE_2FA` | `true` makes every user set up a passkey or authenticator app. |
 | `GRAVATAR` | `true` shows Gravatar photos as profile pictures. Off by default, because it sends a hash of each email address to Gravatar. Without it, people get their initials. |
+| `HOMEPAGE_DIR` | Optional. A folder with an `index.html` to show at `/` (its other files are served under `/site/`). Without it, `/` opens the admin. [`site/`](site) is the OpenCookie homepage. |
 | `APP_NAME` | Name shown in the admin, emails and authenticator apps. |
 | `SESSION_HOURS` | How long a login lasts. Default 12. |
 | `SCAN_MAX_PAGES` | Pages per scan. Default 20. |

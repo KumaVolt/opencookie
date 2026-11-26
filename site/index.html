@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenCookie: cookie consent you host yourself</title>
+  <meta name="description" content="OpenCookie is an open-source cookie banner and consent manager you run on your own server. It scans your sites for cookies, follows the rules of your visitors' country and keeps the consent log with you.">
+  <link rel="canonical" href="https://opencookie.kumavolt.dev/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="OpenCookie: cookie consent you host yourself">
+  <meta property="og:description" content="Open-source cookie banner and consent manager. Unlimited sites on one server, a built-in cookie scanner and rule packs per country.">
+  <meta property="og:url" content="https://opencookie.kumavolt.dev/">
+  <meta property="og:image" content="https://opencookie.kumavolt.dev/site/banner-bar.png">
+  <meta property="og:image:alt" content="An OpenCookie cookie bar with equal Reject all and Accept all buttons">
+  <meta property="og:site_name" content="OpenCookie">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#f4c542">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "OpenCookie",
+    "url": "https://opencookie.kumavolt.dev/",
+    "description": "Open-source, self-hosted cookie banner and consent manager with a cookie scanner and rule packs per country.",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Linux, Docker",
+    "license": "https://www.gnu.org/licenses/agpl-3.0.html",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+    "codeRepository": "https://github.com/KumaVolt/opencookie",
+    "author": { "@type": "Organization", "name": "KumaVolt", "url": "https://kumavolt.dev/" }
+  }
+  </script>
+  <link rel="icon" href="/site/icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --biscuit: #f4c542;
+      --biscuit-deep: #e0aa1f;
+      --ink: #231b15;
+      --muted: #67584b;
+      --line: #e9e2d8;
+      --paper: #ffffff;
+      --panel: #f7f4ef;
+      --code: #1d2330;
+      --code-ink: #e6e9ef;
+      --ok: #1f6f4a;
+      --warn: #a3401c;
+      color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --ink: #f3ede6; --muted: #b9ab9d; --line: #3a322b; --paper: #17130f; --panel: #211b16;
+        --ok: #6fcf9c; --warn: #f29a75; color-scheme: dark;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--paper); color: var(--ink);
+      font: 400 17px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+    a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+    a:focus-visible, button:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; border-radius: 4px; }
+    code, pre { font: 14px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+    /* Hero: biscuit band, headline left, a scan receipt right. */
+    .hero { background: var(--biscuit); color: #231b15; padding: 72px 0 88px; }
+    .hero .wrap { display: grid; grid-template-columns: 1.1fr .9fr; gap: 56px; align-items: center; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; margin: 0 0 40px; }
+    .brand svg { width: 34px; height: 34px; }
+    h1 { font-size: clamp(42px, 6.4vw, 76px); line-height: .98; letter-spacing: -0.035em; font-weight: 850; margin: 0 0 24px; max-width: 12ch; }
+    .lede { font-size: 20px; line-height: 1.5; max-width: 34ch; margin: 0 0 32px; color: #3d3027; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 22px; border-radius: 999px;
+      font-weight: 650; font-size: 16px; text-decoration: none; border: 2px solid #231b15; }
+    .btn.solid { background: #231b15; color: var(--biscuit); }
+    .btn.solid:hover { background: #3a2d24; }
+    .btn.ghost:hover { background: rgba(35,27,21,.08); }
+    .btn svg { width: 18px; height: 18px; }
+    .fine { font-size: 14px; color: #4d3e33; margin: 20px 0 0; }
+
+    .receipt { background: #fffdf7; color: #231b15; border-radius: 6px; padding: 22px 22px 26px; position: relative;
+      box-shadow: 0 1px 0 #d9a91f, 0 24px 48px -20px rgba(80,55,10,.45); transform: rotate(1.2deg);
+      font: 13.5px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+    .receipt::after { content: ""; position: absolute; left: 0; right: 0; bottom: -10px; height: 10px;
+      background: radial-gradient(circle at 6px 0, #fffdf7 6px, transparent 6.5px) 0 0 / 12px 10px repeat-x; }
+    .receipt h2 { font: inherit; font-weight: 700; margin: 0; letter-spacing: .02em; }
+    .receipt .sub { color: #7a6a5c; margin: 2px 0 14px; }
+    .receipt ul { list-style: none; padding: 0; margin: 0; border-top: 1px dashed #cdbfae; }
+    .receipt li { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 9px 0; border-bottom: 1px dashed #cdbfae; }
+    .receipt .who { color: #7a6a5c; grid-column: 1; }
+    .receipt .cat { grid-row: 1 / span 2; grid-column: 2; align-self: center; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; }
+    .receipt .cat.n { color: #4d3e33; }
+    .receipt .cat.s { color: #1d4f9c; }
+    .receipt .cat.m { color: #8a2d5f; }
+    .receipt .flag { color: #a3401c; font-weight: 700; }
+    .receipt .total { display: flex; justify-content: space-between; margin-top: 12px; font-weight: 700; }
+
+    section { padding: 88px 0; }
+    section + section { border-top: 1px solid var(--line); }
+    h2.title { font-size: clamp(30px, 3.6vw, 42px); line-height: 1.1; letter-spacing: -0.025em; font-weight: 800; margin: 0 0 16px; max-width: 20ch; }
+    .intro { color: var(--muted); max-width: 60ch; margin: 0 0 48px; font-size: 18px; }
+
+    .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px 48px; margin: 0; padding: 0; list-style: none; }
+    .features h3 { font-size: 18px; margin: 0 0 6px; letter-spacing: -0.01em; }
+    .features p { margin: 0; color: var(--muted); font-size: 16px; }
+    .features li { border-top: 3px solid var(--biscuit); padding-top: 16px; }
+
+    .shot { margin: 56px 0 0; }
+    /* The screenshot is a whole demo page; show only the strip with the bar. */
+    .shot img { width: 100%; height: auto; aspect-ratio: 2400 / 360; object-fit: cover; object-position: center bottom;
+      display: block; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+    @media (max-width: 720px) { .shot img { aspect-ratio: 2400 / 520; } }
+    .shot figcaption { color: var(--muted); font-size: 14px; margin-top: 10px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 16px; }
+    th, td { text-align: left; padding: 14px 16px 14px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-weight: 650; }
+    thead th { font-size: 14px; color: var(--muted); font-weight: 600; }
+    td.num, th.num { text-align: right; padding-right: 0; padding-left: 16px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    tr.us th, tr.us td { font-weight: 750; }
+    tr.us { background: color-mix(in srgb, var(--biscuit) 22%, transparent); }
+    tr.us th { padding-left: 12px; }
+    .table-scroll { overflow-x: auto; }
+    .note { color: var(--muted); font-size: 14px; margin: 16px 0 0; max-width: 70ch; }
+    td code { background: var(--panel); padding: 2px 6px; border-radius: 4px; font-size: 13px; white-space: nowrap; }
+    tr.us td:last-child { padding-right: 12px; }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+    .split > * { min-width: 0; }
+    .steps { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+    .steps li { counter-increment: step; position: relative; padding: 0 0 28px 52px; }
+    .steps li::before { content: counter(step); position: absolute; left: 0; top: -2px; width: 34px; height: 34px; border-radius: 50%;
+      background: var(--biscuit); color: #231b15; display: grid; place-items: center; font-weight: 800; }
+    .steps h3 { margin: 0 0 6px; font-size: 18px; }
+    .steps p { margin: 0 0 10px; color: var(--muted); font-size: 16px; }
+    pre { background: var(--code); color: var(--code-ink); padding: 16px 18px; border-radius: 8px; overflow-x: auto; margin: 0; }
+    pre .c { color: #8b95a8; }
+
+    .mcp { background: var(--panel); border-radius: 12px; padding: 32px; }
+    .mcp h3 { margin: 0 0 8px; font-size: 20px; }
+    .mcp p { color: var(--muted); margin: 0 0 16px; }
+
+    footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 15px; }
+    footer .wrap { display: flex; gap: 24px; justify-content: space-between; flex-wrap: wrap; }
+    footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
+
+    @media (max-width: 880px) {
+      .hero { padding: 48px 0 64px; }
+      .hero .wrap, .split { grid-template-columns: 1fr; gap: 40px; }
+      .receipt { transform: none; }
+      .features { grid-template-columns: 1fr 1fr; }
+      section { padding: 64px 0; }
+    }
+    @media (max-width: 560px) {
+      .wrap { padding: 0 16px; }
+      .features { grid-template-columns: 1fr; }
+      .lede { font-size: 18px; }
+      .mcp { padding: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <kumavolt-bar style="display:block;height:44px;background:#141416"></kumavolt-bar>
+  <script src="https://kumavolt.dev/bar/bar.js" defer></script>
+
+  <header class="hero">
+    <div class="wrap">
+      <div>
+        <p class="brand">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#231b15"/><path d="M16 6.5a9.5 9.5 0 1 0 9.4 10.9 3.2 3.2 0 0 1-3.9-3.4 3.2 3.2 0 0 1-3.6-3.9A3.2 3.2 0 0 1 16 6.5Z" fill="#f4c542"/><circle cx="12.4" cy="13.6" r="1.5" fill="#231b15"/><circle cx="17.6" cy="20" r="1.5" fill="#231b15"/><circle cx="12" cy="19.6" r="1.1" fill="#231b15"/></svg>
+          OpenCookie
+        </p>
+        <h1>Cookie consent you host yourself.</h1>
+        <p class="lede">A cookie banner, a cookie scanner and a consent log, on your own server. Add as many sites as you like: nothing is counted per domain.</p>
+        <div class="actions">
+          <a class="btn solid" href="https://github.com/KumaVolt/opencookie">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0a8 8 0 0 0-2.53 15.59c.4.07.55-.17.55-.38v-1.33c-2.23.48-2.7-1.07-2.7-1.07-.36-.92-.89-1.17-.89-1.17-.73-.5.05-.49.05-.49.8.06 1.23.83 1.23.83.72 1.22 1.88.87 2.33.66.07-.52.28-.87.5-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.28.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48v2.2c0 .21.15.46.55.38A8 8 0 0 0 8 0Z"/></svg>
+            Get it on GitHub
+          </a>
+          <a class="btn ghost" href="/admin/">Sign in</a>
+        </div>
+        <p class="fine">Open source under AGPL-3.0. Sign in is for teams with an account on this server.</p>
+      </div>
+
+      <div class="receipt" role="img" aria-label="Example scan result: four cookies found on bakkerij.nl, one of them set before consent">
+        <h2>SCAN · bakkerij.nl</h2>
+        <p class="sub">20 pages · before and after consent</p>
+        <ul>
+          <li><span>oc_consent</span><span class="who">OpenCookie · 12 months</span><span class="cat n">Necessary</span></li>
+          <li><span>_ga</span><span class="who">Google Analytics · 2 years</span><span class="cat s">Statistics</span></li>
+          <li><span>_hjSessionUser_…</span><span class="who">Hotjar · 1 year</span><span class="cat s">Statistics</span></li>
+          <li><span>_fbp <span class="flag">· set before consent</span></span><span class="who">Meta Pixel · 3 months</span><span class="cat m">Marketing</span></li>
+        </ul>
+        <p class="total"><span>4 cookies, 1 problem</span><span>nl-ap</span></p>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="wrap">
+        <h2 class="title">Everything a cookie banner should do, nothing it shouldn't</h2>
+        <p class="intro">A banner shows a choice, holds back scripts until that choice is made and keeps a record of it. Hosted services charge for that per domain, every month. OpenCookie does it on a server you already have.</p>
+        <ul class="features">
+          <li><h3>Finds the cookies for you</h3><p>A headless browser visits up to 20 pages of each site, first without consent and then after accepting, and looks every cookie up in the Open Cookie Database.</p></li>
+          <li><h3>Rules per country</h3><p>Rule packs for the Dutch AP, the EDPB, CNIL, German TDDDG, UK DUAA and US GPC decide what the banner must do and what the compliance check looks for.</p></li>
+          <li><h3>Blocks before it asks</h3><p>Scripts and embeds from about 50 known services wait until the visitor agrees. Google Consent Mode v2 is sent with every choice.</p></li>
+          <li><h3>A fair banner</h3><p>Reject sits next to Accept and looks the same. Nothing is pre-ticked, there is no cookie wall, and it works with a keyboard and a screen reader.</p></li>
+          <li><h3>Proof of consent</h3><p>Each choice is logged with its policy version and a hashed, truncated IP address, in a SQLite file on your server. Export it as CSV when someone asks.</p></li>
+          <li><h3>Built for agencies</h3><p>Each client gets its own sites, team and statistics. Owners, editors and viewers; passkeys and 2FA for everyone.</p></li>
+        </ul>
+        <figure class="shot">
+          <img src="/site/banner-bar.png" width="2400" height="1280" loading="lazy" alt="A cookie bar at the bottom of a demo page, in Dutch, with equal Reject all and Accept all buttons and a Choose per category link">
+          <figcaption>The bar on a demo site. It also comes as a corner box or a centred popup, in six languages.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2 class="title">What it costs</h2>
+        <p class="intro">List prices for a small business site on the cheapest plan that fits, excluding VAT, read from each vendor's pricing page on 25 November 2026.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col"></th><th scope="col" class="num">1 site</th><th scope="col" class="num">10 sites</th><th scope="col" class="num">50 sites</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Cookiebot</th><td class="num">€360 a year</td><td class="num">€1,800 a year</td><td class="num">€9,000 a year</td></tr>
+              <tr><th scope="row">iubenda (Advanced)</th><td class="num">€240 a year</td><td class="num">€2,399 a year</td><td class="num">€11,994 a year</td></tr>
+              <tr><th scope="row">CookieYes (Basic)</th><td class="num">€90 a year</td><td class="num">€900 a year</td><td class="num">€4,500 a year</td></tr>
+              <tr class="us"><th scope="row">OpenCookie</th><td class="num">your server</td><td class="num">the same server</td><td class="num">the same server</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">Prices change often; the README on GitHub shows how each figure was worked out.</p>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2 class="title">Rule packs</h2>
+        <p class="intro">Pick the pack for the country where most of a site's visitors are. The packs are a starting point, not legal advice.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th scope="col">Pack</th><th scope="col">Model</th><th scope="col">What it adds</th></tr></thead>
+            <tbody>
+              <tr><td><code>nl-ap</code></td><td>Opt-in</td><td>Telecommunicatiewet 11.7a and AP guidance. Privacy-friendly analytics can run without consent once you confirm the conditions.</td></tr>
+              <tr><td><code>eu-edpb</code></td><td>Opt-in</td><td>The EDPB baseline and the 2023 cookie banner taskforce findings.</td></tr>
+              <tr><td><code>fr-cnil</code></td><td>Opt-in</td><td>Consent lasts 13 months and a refusal is remembered for 6.</td></tr>
+              <tr><td><code>de-tdddg</code></td><td>Opt-in</td><td>TDDDG §25.</td></tr>
+              <tr><td><code>uk-duaa</code></td><td>Opt-in</td><td>Statistics cookies can be exempt under the Data (Use and Access) Act 2025, if visitors can object.</td></tr>
+              <tr><td><code>us-gpc</code></td><td>Opt-out</td><td>"Do not sell or share", with the Global Privacy Control signal honoured.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap split">
+        <div>
+          <h2 class="title">Run your own</h2>
+          <p class="intro">You need Docker, a domain for the consent server and HTTPS in front of it.</p>
+          <ol class="steps">
+            <li>
+              <h3>Start the server</h3>
+              <pre><code>git clone https://github.com/KumaVolt/opencookie.git
+cd opencookie
+cp .env.example .env   <span class="c"># PUBLIC_URL, SETUP_KEY, SECRET</span>
+docker compose up -d</code></pre>
+            </li>
+            <li>
+              <h3>Create the first admin</h3>
+              <p>Open <code>/admin/</code> on your domain and enter the setup key. Then add a client and a site.</p>
+            </li>
+            <li>
+              <h3>Add one line to your site</h3>
+              <p>First in the <code>&lt;head&gt;</code> of every page, without <code>async</code> or <code>defer</code>:</p>
+              <pre><code>&lt;script src="https://consent.example.com/s/SITE_KEY/banner.js"&gt;&lt;/script&gt;</code></pre>
+            </li>
+          </ol>
+        </div>
+        <div>
+          <div class="mcp">
+            <h3>Works with your AI assistant</h3>
+            <p>OpenCookie has an MCP server. Create an access token under Your account, and Claude Code or another MCP client can list your sites, run scans, check compliance and read consent statistics, with the same rights as you.</p>
+            <pre><code>claude mcp add --transport http opencookie \
+  https://consent.example.com/mcp \
+  --header "Authorization: Bearer oc_pat_…"</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>OpenCookie is made by <a href="https://kumavolt.dev/">KumaVolt</a>. AGPL-3.0. This page sets no cookies.</span>
+      <nav aria-label="Links">
+        <a href="https://github.com/KumaVolt/opencookie">GitHub</a>
+        <a href="https://github.com/KumaVolt/opencookie/issues">Report a problem</a>
+        <a href="/admin/">Sign in</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

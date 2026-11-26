@@ -12,6 +12,7 @@ RUN npm ci --include=dev \
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY site ./site
 COPY scripts ./scripts
 COPY data/translations ./data/translations
 RUN node scripts/build.ts && npm prune --omit=dev
