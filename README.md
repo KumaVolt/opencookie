@@ -106,9 +106,14 @@ Passkeys are tied to the host name in `PUBLIC_URL`. If you move to another domai
 <!-- A link that opens the cookie settings -->
 <a href="#" data-oc-open>Cookie settings</a>
 
-<!-- The cookie table for your cookie policy page -->
+<!-- Your whole cookie policy, always up to date, in your site's own styles -->
+<div data-oc-policy></div>
+
+<!-- Or only the cookie table -->
 <div data-oc-declaration></div>
 ```
+
+After a choice, a small cookie button in the corner lets visitors change it. You can turn it off under Appearance; then put a `data-oc-open` link or the `data-oc-policy` block on every page, and the next scan checks that you did.
 
 Scripts from about 50 known services (Meta, TikTok, LinkedIn, Hotjar, Clarity, YouTube and more) are held back automatically. Google tags get Consent Mode v2. In JavaScript: `OpenCookie.hasConsent('statistics')`, `OpenCookie.onChange(fn)` and the `opencookie:change` event.
 

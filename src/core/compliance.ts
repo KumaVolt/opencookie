@@ -84,6 +84,18 @@ export function checkCompliance(input: ComplianceInput): ComplianceIssue[] {
     });
   }
 
+  // Visitors must be able to change their choice as easily as they gave it.
+  const needsConsent = cookies.some((c) => c.category !== 'necessary' && !exempt.has(c.category));
+  if (site.theme.floatingButton === false && needsConsent && latestScan?.status === 'done' && latestScan.settingsLinkFound !== true) {
+    issues.push({
+      severity: 'error',
+      code: 'NO_WAY_TO_CHANGE',
+      message: latestScan.settingsLinkFound === false
+        ? 'The cookie button is off and the scan found no other way to change cookie settings. Add a link with data-oc-open (for example in your footer) or the cookie policy block with data-oc-policy.'
+        : 'The cookie button is off. Make sure every page has a link with data-oc-open, or the cookie policy block with data-oc-policy, then scan again to check.',
+    });
+  }
+
   if (!site.privacyPolicyUrl) {
     issues.push({ severity: 'error', code: 'NO_POLICY_URL', message: 'Set a cookie or privacy policy URL. Visitors must be able to read what each cookie does.' });
   }

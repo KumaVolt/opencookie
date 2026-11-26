@@ -84,14 +84,14 @@ test('every template has every key filled in', () => {
 test('compliance flags pre-consent cookies but respects confirmed exemptions', () => {
   const site = {
     id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'nl', locales: ['nl'],
-    privacyPolicyUrl: 'https://example.nl/cookies', contact: 'privacy@example.nl', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
+    privacyPolicyUrl: 'https://example.nl/cookies', contact: 'privacy@example.nl', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
   const cookie = (name: string, category: SiteCookie['category']): SiteCookie => ({
     id: 1, siteId: 1, name, domain: 'example.nl', kind: 'cookie', category, provider: '', ocdId: 'x', description: 'd',
     descriptionOverrides: {}, retention: '1 year', source: 'scan', reviewed: false, setBeforeConsent: true, firstSeen: '', lastSeen: '', exampleUrl: '',
   });
-  const scan = { id: 1, siteId: 1, status: 'done' as const, startedAt: '', finishedAt: new Date().toISOString(), pagesScanned: 1, cookiesFound: 2, bannerDetected: true, thirdPartyHostsBeforeConsent: [], error: null };
+  const scan = { id: 1, siteId: 1, status: 'done' as const, startedAt: '', finishedAt: new Date().toISOString(), pagesScanned: 1, cookiesFound: 2, bannerDetected: true, thirdPartyHostsBeforeConsent: [], settingsLinkFound: false, error: null };
   const cookies = [cookie('_pk_id', 'statistics'), cookie('PHPSESSID', 'necessary')];
   const codes = (s: Site) => checkCompliance({ site: s, cookies, latestScan: scan, missingTranslations: {} }).map((i) => i.code);
   assert.ok(codes(site).includes('PRECONSENT_COOKIES'));
@@ -103,6 +103,12 @@ test('compliance flags pre-consent cookies but respects confirmed exemptions', (
   const onlyNecessary = checkCompliance({ site, cookies: [cookie('PHPSESSID', 'necessary')], latestScan: scan, missingTranslations: {} }).map((i) => i.code);
   assert.ok(onlyNecessary.includes('NO_BANNER_NEEDED'));
   assert.ok(!checkCompliance({ site, cookies: [], latestScan: null, missingTranslations: {} }).some((i) => i.code === 'NO_BANNER_NEEDED'));
+  // Without the cookie button, visitors need another way to change their choice.
+  const noButton = { ...site, theme: { ...site.theme, floatingButton: false } };
+  assert.ok(!codes(site).includes('NO_WAY_TO_CHANGE'));
+  assert.ok(codes(noButton).includes('NO_WAY_TO_CHANGE'));
+  const withLink = checkCompliance({ site: noButton, cookies, latestScan: { ...scan, settingsLinkFound: true }, missingTranslations: {} }).map((i) => i.code);
+  assert.ok(!withLink.includes('NO_WAY_TO_CHANGE'));
 });
 
 test('the banner is only needed when a scanned site has cookies that need consent', () => {
@@ -117,7 +123,7 @@ test('the banner is only needed when a scanned site has cookies that need consen
   // A site whose scan found no cookies at all needs no banner; before its first scan it does.
   const site = {
     id: 1, orgId: 1, key: 'k', name: 'S', domain: 'example.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
-    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
+    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
   const tr = new TranslationStore();
@@ -148,7 +154,7 @@ test('tracking services never count as necessary, and PostHog cookies are recogn
   const { classify } = await import('../src/server/scans.ts');
   const site = {
     id: 1, orgId: 1, key: 'k', name: 'Shop', domain: 'shop.nl', extraDomains: [], rulePack: 'nl-ap', defaultLocale: 'en', locales: ['en'],
-    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom' },
+    privacyPolicyUrl: '', contact: '', theme: { primary: '#000', background: '#fff', text: '#000', position: 'bottom', floatingButton: true },
     textOverrides: {}, exemptConfirmed: [], consentMode: true, autoBlock: true, policyVersion: 1, createdAt: '', updatedAt: '',
   } satisfies Site;
   const fake = (category: SiteCookie['category'], platform: string) => ({ match: () => ({ id: 'x', category, platform, description: 'd', retention: '1 year' }) });
@@ -160,6 +166,9 @@ test('tracking services never count as necessary, and PostHog cookies are recogn
   assert.equal(ph.category, 'statistics');
   assert.equal(ph.provider, 'PostHog');
   assert.equal(classify(f('__ph_opt_in_out_phc_abc'), site, none as never).category, 'statistics');
-  assert.equal(classify(f('hjActiveViewportIds'), site, none as never).category, 'statistics');
+  const hj = classify({ ...f('hjActiveViewportIds'), setBy: 'https://static.hotjar.com/c/hotjar-1.js?sv=6' }, site, none as never);
+  assert.equal(hj.category, 'statistics');
+  assert.equal(hj.provider, 'static.hotjar.com');
+  assert.equal(classify(f('hjActiveViewportIds'), site, none as never).category, 'marketing');
   assert.equal(classify(f('mystery'), site, none as never).category, 'marketing');
 });

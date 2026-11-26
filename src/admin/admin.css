@@ -341,3 +341,7 @@ table.clickable tbody tr:hover td { background: var(--sunken); }
 .switcher-btn:disabled:hover { background: var(--side-hover); }
 .switcher-btn .switcher-label { display: flex; flex-direction: column; font-weight: 600; }
 .pagehead .row { flex-wrap: wrap; } .pagehead .row > * { flex: 0 0 auto; }
+
+/* A short explanation that belongs to the setting above it. */
+.note { border-left: 3px solid var(--line-strong); padding: 2px 0 2px 14px; margin: 4px 0 8px 28px; }
+.note p { margin: 6px 0; }

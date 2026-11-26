@@ -153,6 +153,7 @@ const TOOLS: Tool[] = [
         autoBlock: { type: 'boolean', description: 'Block known trackers until consent.' },
         consentMode: { type: 'boolean', description: 'Google Consent Mode v2 instead of blocking Google tags.' },
         layout: { type: 'string', enum: ['bottom', 'bottom-left', 'center'], description: 'Bar at the bottom, box bottom left, or popup in the centre.' },
+        cookieButton: { type: 'boolean', description: 'Show the small cookie button after a choice. If false, the site needs a data-oc-open link or a data-oc-policy block so visitors can still change their choice.' },
         buttonColour: { type: 'string', description: 'Hex colour such as #1a1a1a. Accept and Reject always share it.' },
         backgroundColour: { type: 'string' },
         textColour: { type: 'string' },
@@ -167,13 +168,14 @@ const TOOLS: Tool[] = [
       for (const k of ['name', 'rulePack', 'privacyPolicyUrl', 'contact', 'autoBlock', 'consentMode'] as const) if (a[k] !== undefined) patch[k] = a[k];
       if (a.languages !== undefined) patch.locales = a.languages;
       if (a.defaultLanguage !== undefined) patch.defaultLocale = a.defaultLanguage;
-      if (a.layout !== undefined || a.buttonColour !== undefined || a.backgroundColour !== undefined || a.textColour !== undefined) {
+      if (a.layout !== undefined || a.buttonColour !== undefined || a.backgroundColour !== undefined || a.textColour !== undefined || a.cookieButton !== undefined) {
         patch.theme = {
           ...cur.theme,
           ...(a.layout !== undefined && { position: a.layout }),
           ...(a.buttonColour !== undefined && { primary: a.buttonColour }),
           ...(a.backgroundColour !== undefined && { background: a.backgroundColour }),
           ...(a.textColour !== undefined && { text: a.textColour }),
+          ...(a.cookieButton !== undefined && { floatingButton: a.cookieButton }),
         };
       }
       if (!Object.keys(patch).length) throw new ToolError('Pass at least one setting to change.');

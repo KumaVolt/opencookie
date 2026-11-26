@@ -340,12 +340,13 @@ function Overview({ site }: { site: Site }) {
         <div class="panel">
           <p>1. Paste this as the <strong>first</strong> element in the <code>&lt;head&gt;</code> of every page (no <code>async</code>/<code>defer</code>, so it can block trackers):</p>
           <pre>{embed.head}</pre>
-          <p>2. On your cookie policy page, this renders the always-up-to-date cookie table in the visitor's language:</p>
+          <p>2. On your cookie policy page, this fills in the whole policy, always up to date and in the visitor's language. It uses your site's own fonts and colours:</p>
           <pre>{embed.policy}</pre>
-          <p>Or link to the generated policy page: <a href={embed.policyUrl} target="_blank" rel="noreferrer">{embed.policyUrl}</a></p>
-          <p>3. Scripts the auto-blocker does not know can be blocked by hand:</p>
+          <p class="muted">Only want the cookie table? Use <code>{embed.declaration}</code>. Or link to the hosted page: <a href={embed.policyUrl} target="_blank" rel="noreferrer">{embed.policyUrl}</a></p>
+          <p>3. A link that opens the cookie settings, for your footer. Needed on every page if you turn off the cookie button under Appearance:</p>
+          <pre>{embed.settingsLink}</pre>
+          <p>4. Scripts the auto-blocker does not know can be blocked by hand:</p>
           <pre>{embed.manualBlocking}</pre>
-          <p>Add <code>data-oc-open</code> to any link or button (e.g. in your footer) to open the cookie settings.</p>
         </div>
       )}
     </>
@@ -588,6 +589,15 @@ function Settings({ site, meta, onSaved, canDelete }: { site: Site; meta: Meta; 
               ))}
             </div>
             <p class="muted">Accept and Reject always use the button colour, so neither stands out.</p>
+            <label class="check"><input type="checkbox" checked={s.theme.floatingButton !== false} onChange={() => setS({ ...s, theme: { ...s.theme, floatingButton: s.theme.floatingButton === false } })} />
+              <span><strong>Show the cookie button after a choice.</strong> A small round button in the bottom left corner that reopens the cookie settings.</span></label>
+            {s.theme.floatingButton === false && (
+              <div class="note">
+                <p>Visitors must still be able to change their choice. Put a link like this on every page, for example in your footer:</p>
+                <pre>{'<a href="#" data-oc-open>Cookie settings</a>'}</pre>
+                <p>The cookie policy block (<code>{'<div data-oc-policy></div>'}</code>) has a button for it too. The next scan checks that one of them is there.</p>
+              </div>
+            )}
           </section>
         )}
         {sec === 'danger' && canDelete && (

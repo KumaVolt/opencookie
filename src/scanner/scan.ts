@@ -23,6 +23,8 @@ export interface RawFinding {
   expiresInSeconds: number | null;
   setBeforeConsent: boolean;
   url: string;
+  /** The script or response that set it, when the browser could tell. */
+  setBy?: string;
 }
 
 export interface ScanResult {
@@ -30,6 +32,8 @@ export interface ScanResult {
   findings: RawFinding[];
   bannerDetected: boolean;
   thirdPartyHostsBeforeConsent: string[];
+  /** A data-oc-open link or a data-oc-policy/declaration block on any scanned page. */
+  settingsLinkFound: boolean;
 }
 
 const SKIP_EXT = /\.(pdf|jpe?g|png|gif|webp|svg|zip|docx?|xlsx?|pptx?|mp4|mp3|ics|xml|json|css|js)(\?|$)/i;
@@ -52,9 +56,12 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
     const findings = new Map<string, RawFinding>();
     const thirdParty = new Set<string>();
     let bannerDetected = false;
+    let settingsLinkFound = false;
+    const setters = new Map<string, string>();
 
     // ---- Phase 1: no consent ----
     const ctx1 = await browser.newContext({ userAgent: uaString(), locale: 'en-GB' });
+    await watchSetters(ctx1, setters);
     const page1 = await ctx1.newPage();
     page1.on('request', (req) => {
       try {
@@ -77,7 +84,8 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
       }
       visited.push(url);
       bannerDetected ||= await page1.evaluate(() => typeof (window as unknown as { OpenCookie?: unknown }).OpenCookie === 'object');
-      await collect(ctx1, page1, url, true, findings);
+      settingsLinkFound ||= await page1.evaluate(() => !!document.querySelector('[data-oc-open], [data-oc-policy], [data-oc-declaration]')).catch(() => false);
+      await collect(ctx1, page1, url, true, findings, setters);
       for (const link of await sameSiteLinks(page1, opts)) {
         if (!visited.includes(link) && !queue.includes(link)) queue.push(link);
       }
@@ -87,6 +95,7 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
     // ---- Phase 2: accept all through the banner, then revisit a few pages ----
     if (bannerDetected) {
       const ctx2 = await browser.newContext({ userAgent: uaString(), locale: 'en-GB' });
+      await watchSetters(ctx2, setters);
       const page2 = await ctx2.newPage();
       const revisit = visited.slice(0, Math.min(5, visited.length));
       for (const [i, url] of revisit.entries()) {
@@ -97,7 +106,7 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
             await page2.waitForLoadState('load').catch(() => {});
           }
           await page2.waitForTimeout(SETTLE_MS);
-          await collect(ctx2, page2, url, false, findings);
+          await collect(ctx2, page2, url, false, findings, setters);
         } catch (e) {
           log(`  failed after consent: ${(e as Error).message.split('\n')[0]}`);
         }
@@ -110,6 +119,7 @@ export async function scanSite(opts: ScanOptions): Promise<ScanResult> {
       findings: [...findings.values()],
       bannerDetected,
       thirdPartyHostsBeforeConsent: [...thirdParty].sort(),
+      settingsLinkFound,
     };
   } finally {
     await browser.close();
@@ -122,11 +132,15 @@ async function collect(
   url: string,
   beforeConsent: boolean,
   out: Map<string, RawFinding>,
+  setters: Map<string, string>,
 ) {
   const nowSec = Date.now() / 1000;
+  const fromPage = (await page.evaluate(() => (window as unknown as { __ocSetBy?: Record<string, string> }).__ocSetBy ?? {}).catch(() => ({}))) as Record<string, string>;
+  for (const [k, v] of Object.entries(fromPage)) if (!setters.has(k)) setters.set(k, v);
   const add = (f: RawFinding) => {
     const key = `${f.kind}|${f.domain}|${f.name}`;
-    if (!out.has(key)) out.set(key, f);
+    const setBy = setters.get(`${f.kind === 'cookie' ? 'cookie' : 'storage'}|${f.name}`);
+    if (!out.has(key)) out.set(key, setBy ? { ...f, setBy } : f);
   };
   for (const c of await ctx.cookies()) {
     add({
@@ -147,6 +161,51 @@ async function collect(
     for (const k of storage.local) add({ name: k, domain: storage.host, kind: 'localStorage', expiresInSeconds: null, setBeforeConsent: beforeConsent, url });
     for (const k of storage.session) add({ name: k, domain: storage.host, kind: 'sessionStorage', expiresInSeconds: null, setBeforeConsent: beforeConsent, url });
   }
+}
+
+/**
+ * Notes which script or response set each cookie and storage key, so the server can
+ * tell a tracker's cookie from the site's own even when the cookie name is unknown.
+ */
+async function watchSetters(ctx: import('playwright').BrowserContext, setters: Map<string, string>) {
+  ctx.on('response', async (res) => {
+    try {
+      const header = await res.headerValue('set-cookie');
+      if (!header) return;
+      for (const line of header.split('\n')) {
+        const name = line.split('=')[0]?.trim();
+        if (name && !setters.has(`cookie|${name}`)) setters.set(`cookie|${name}`, res.url());
+      }
+    } catch {
+      /* response gone */
+    }
+  });
+  await ctx.addInitScript(() => {
+    const w = window as unknown as { __ocSetBy: Record<string, string> };
+    w.__ocSetBy = {};
+    // The first http(s) URL in the stack is the script that made the call.
+    const caller = () => (new Error().stack ?? '').match(/https?:\/\/[^\s)]+?(?=:\d+:\d+)/)?.[0];
+    const note = (key: string) => {
+      const by = caller();
+      if (by && !(key in w.__ocSetBy)) w.__ocSetBy[key] = by;
+    };
+    const desc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');
+    if (desc?.set && desc.get) {
+      Object.defineProperty(Document.prototype, 'cookie', {
+        configurable: true,
+        get: desc.get,
+        set(v: string) {
+          note(`cookie|${String(v).split('=')[0]!.trim()}`);
+          desc.set!.call(this, v);
+        },
+      });
+    }
+    const setItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (k: string, v: string) {
+      note(`storage|${k}`);
+      return setItem.call(this, k, v);
+    };
+  });
 }
 
 async function sameSiteLinks(page: import('playwright').Page, opts: ScanOptions): Promise<string[]> {

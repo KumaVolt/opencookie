@@ -7,6 +7,11 @@ export interface SiteTheme {
   background: string;
   text: string;
   position: 'bottom' | 'center' | 'bottom-left';
+  /**
+   * Show the small cookie button after a choice, so visitors can change it. When off, the
+   * site must offer another way: a data-oc-open link, or the data-oc-policy block.
+   */
+  floatingButton: boolean;
 }
 
 export interface Site {
@@ -75,6 +80,8 @@ export interface ScanSummary {
   bannerDetected: boolean | null;
   /** Third-party hosts contacted before any consent was given. */
   thirdPartyHostsBeforeConsent: string[];
+  /** Whether any scanned page had a data-oc-open link or a data-oc-policy/declaration block. */
+  settingsLinkFound: boolean | null;
   error: string | null;
 }
 

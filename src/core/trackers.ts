@@ -38,7 +38,11 @@ export function trackerCategory(platform: string): Category | null {
   return TRACKING_PLATFORMS[platform.trim().toLowerCase()] ?? null;
 }
 
-/** Cookies the Open Cookie Database doesn't list yet, by name pattern. */
+/**
+ * Cookies the Open Cookie Database doesn't list yet, by name pattern. Only a last resort:
+ * the scanner first looks at which script set a cookie. PostHog is here because sites
+ * usually bundle it into their own JavaScript, so there's no tracker host to see.
+ */
 export const EXTRA_COOKIES: { pattern: RegExp; platform: string; category: Category; description: string }[] = [
   {
     // ph_<project key>_posthog, ph_conv_…, __ph_opt_in_out_…, ph_…_window_id and similar.
@@ -46,12 +50,5 @@ export const EXTRA_COOKIES: { pattern: RegExp; platform: string; category: Categ
     platform: 'PostHog',
     category: 'statistics',
     description: 'Set by PostHog product analytics to recognise a visitor and their session.',
-  },
-  {
-    // _hjSession_…, _hjSessionUser_…, hjViewportId, hjActiveViewportIds and similar.
-    pattern: /^_?hj[A-Z]/,
-    platform: 'Hotjar',
-    category: 'statistics',
-    description: 'Set by Hotjar to measure how visitors use the page.',
   },
 ];

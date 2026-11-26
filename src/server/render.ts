@@ -153,6 +153,49 @@ export function cookiePolicyMarkdown(site: Site, cookies: SiteCookie[], requeste
     .replaceAll('{cookieTable}', table);
 }
 
+/**
+ * The hosted cookie policy as a page of its own, for sites that link to it instead of
+ * embedding it. It loads the site's banner so the "change settings" button works here too.
+ */
+export function policyPage(site: Site, locale: string, body: string, bannerSrc: string): string {
+  const title = body.match(/<h1>(.*?)<\/h1>/)?.[1] ?? 'Cookie policy';
+  return `<!doctype html>
+<html lang="${escHtml(locale)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>${title} · ${escHtml(site.name)}</title>
+<script src="${escHtml(bannerSrc)}"></script>
+<style>
+  :root { color-scheme: light dark; --text: #1d1d1b; --muted: #5f5f5a; --line: #dcdcd6; --bg: #fff; --soft: #f5f5f2; --btn: ${site.theme.primary}; }
+  @media (prefers-color-scheme: dark) { :root { --text: #ececea; --muted: #a5a5a0; --line: #3a3a37; --bg: #161615; --soft: #1f1f1e; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 4rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .25rem; }
+  h2 { font-size: 1.3rem; margin: 2.25rem 0 .5rem; }
+  h3 { font-size: 1.05rem; margin: 1.75rem 0 .25rem; }
+  p { margin: .5rem 0; }
+  em { color: var(--muted); }
+  code { font: .85em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .table { overflow-x: auto; margin: .75rem 0 1rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; vertical-align: top; padding: .5rem .75rem .5rem 0; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; color: var(--muted); }
+  button { font: inherit; font-weight: 600; color: var(--bg); background: var(--text); border: 0; border-radius: 6px; padding: .6rem 1rem; cursor: pointer; }
+  @media (prefers-color-scheme: light) { button { color: #fff; background: var(--btn); } }
+  button:focus-visible { outline: 3px solid var(--text); outline-offset: 3px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+${body.replace(/<table>/g, '<div class="table"><table>').replace(/<\/table>/g, '</table></div>')}
+</main>
+</body>
+</html>`;
+}
+
 const escHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** Minimal Markdown → HTML for the policy template (headings, paragraphs, emphasis, code, tables). */

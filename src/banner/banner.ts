@@ -512,7 +512,8 @@ const COOKIE = 'oc_consent';
   }
 
   function showFab() {
-    if (!config || quiet) return;
+    // Off when the site owner offers their own link (data-oc-open) or the policy block instead.
+    if (!config || quiet || config.theme.floatingButton === false) return;
     const r = ensureRoot();
     if (r.querySelector('.oc-fab')) return;
     const label = config.texts.withdrawButton;
@@ -545,6 +546,19 @@ const COOKIE = 'oc_consent';
         (config!.lastScanned ? `<p><small>${esc(d.lastScanned)}: ${new Date(config!.lastScanned).toLocaleDateString(config!.locale)}</small></p>` : '') +
         `<p><button type="button" data-oc-open>${esc(d.changeSettings)}</button></p>`;
     });
+  }
+
+  // The whole cookie policy, in the site's own styles: <div data-oc-policy></div>
+  function renderPolicies() {
+    const boxes = document.querySelectorAll<HTMLElement>('[data-oc-policy]');
+    if (!boxes.length || !config || !boot) return;
+    fetch(`${boot.api}/api/v1/sites/${boot.key}/policy?format=fragment&lang=${encodeURIComponent(config.locale)}`)
+      .then((r) => (r.ok ? r.text() : ''))
+      .then((html) => {
+        // Server-rendered from the site's settings, with every value escaped.
+        if (html) boxes.forEach((box) => (box.innerHTML = html));
+      })
+      .catch(() => {});
   }
 
   // Any element with data-oc-open (e.g. a footer link) opens the settings.
@@ -587,6 +601,7 @@ const COOKIE = 'oc_consent';
     config = cfg;
     renderPlaceholders();
     renderDeclarations();
+    renderPolicies();
     // Only necessary cookies: no banner and no settings button. Links with data-oc-open still work.
     askAbout(waitingCategories());
     quiet = !cfg.consentNeeded && !pageWaitsForConsent();

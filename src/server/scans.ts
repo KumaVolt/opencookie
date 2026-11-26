@@ -1,4 +1,5 @@
 import type { Category } from '../core/categories.ts';
+import { ruleForUrl } from '../core/blocklist.ts';
 import { EXTRA_COOKIES, trackerCategory } from '../core/trackers.ts';
 import type { CookieMatcher } from '../core/cookiedb.ts';
 import type { Site } from '../core/types.ts';
@@ -68,6 +69,7 @@ export class ScanQueue {
         cookiesFound: observed.length,
         bannerDetected: result.bannerDetected,
         thirdPartyHostsBeforeConsent: result.thirdPartyHostsBeforeConsent,
+        settingsLinkFound: result.settingsLinkFound,
       });
     } catch (e) {
       this.db.updateScan(scanId, { status: 'failed', finishedAt: new Date().toISOString(), error: (e as Error).message });
@@ -76,7 +78,7 @@ export class ScanQueue {
 }
 
 export function classify(
-  f: { name: string; domain: string; kind: ObservedCookie['kind']; expiresInSeconds: number | null; setBeforeConsent: boolean; url: string },
+  f: { name: string; domain: string; kind: ObservedCookie['kind']; expiresInSeconds: number | null; setBeforeConsent: boolean; url: string; setBy?: string },
   site: Site,
   matcher: CookieMatcher,
 ): ObservedCookie {
@@ -89,6 +91,12 @@ export function classify(
     // A tracking service's "functional" cookie still needs consent.
     const category = hit.category === 'necessary' ? trackerCategory(hit.platform) ?? hit.category : hit.category;
     return { ...base(f), category, provider: hit.platform, ocdId: hit.id, description: hit.description, retention: hit.retention || fallbackRetention(f) };
+  }
+  // Not in the database, but set by a known tracker's script or server.
+  const setter = f.setBy ? ruleForUrl(f.setBy) : null;
+  if (setter) {
+    const host = new URL(f.setBy!).hostname;
+    return { ...base(f), category: setter.category, provider: host, ocdId: null, description: `Set by a script from ${host}.`, retention: fallbackRetention(f) };
   }
   const extra = EXTRA_COOKIES.find((x) => x.pattern.test(f.name));
   if (extra) {

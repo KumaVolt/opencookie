@@ -74,3 +74,14 @@ export const BLOCK_RULES: BlockRule[] = [
 export function rulesFor(consentMode: boolean): BlockRule[] {
   return consentMode ? BLOCK_RULES.filter((r) => !r.google) : BLOCK_RULES;
 }
+
+/** The rule whose host (and path, if any) matches this URL, or null. */
+export function ruleForUrl(url: string): BlockRule | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  return BLOCK_RULES.find((r) => (u.hostname === r.host || u.hostname.endsWith(`.${r.host}`)) && (!r.path || u.pathname.includes(r.path))) ?? null;
+}

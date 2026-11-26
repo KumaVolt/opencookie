@@ -15,7 +15,7 @@ import { registerAuth } from './auth.ts';
 import { config } from './config.ts';
 import { downloadCookieDb, loadMatcher, loadTranslations } from './data.ts';
 import { hostBelongsToSite, openDb, type SiteInput } from './db.ts';
-import { buildBannerConfig, cookiePolicyMarkdown, markdownToHtml } from './render.ts';
+import { buildBannerConfig, cookiePolicyMarkdown, markdownToHtml, pickLocale, policyPage } from './render.ts';
 import { registerMcp } from './mcp.ts';
 import { ScanQueue } from './scans.ts';
 
@@ -99,7 +99,9 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     const md = cookiePolicyMarkdown(site, db.listCookies(site.id), req.query.lang, translations, db.latestFinishedScan(site.id)?.finishedAt ?? null);
     reply.header('Access-Control-Allow-Origin', '*').header('Cache-Control', 'public, max-age=300');
     if (req.query.format === 'md') return reply.type('text/markdown; charset=utf-8').send(md);
-    return reply.type('text/html; charset=utf-8').send(markdownToHtml(md));
+    // The fragment fills <div data-oc-policy> on the site's own page, in the site's own styles.
+    if (req.query.format === 'fragment') return reply.type('text/html; charset=utf-8').send(markdownToHtml(md));
+    return reply.type('text/html; charset=utf-8').send(policyPage(site, pickLocale(site, req.query.lang), markdownToHtml(md), `${config.publicUrl}/s/${site.key}/banner.js`));
   });
 
   const consentRate = new Map<string, { n: number; reset: number }>();
@@ -251,7 +253,9 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     const site = siteOf(req);
     return {
       head: `<script src="${config.publicUrl}/s/${site.key}/banner.js"></script>`,
-      policy: `<div data-oc-declaration></div>`,
+      policy: `<div data-oc-policy></div>`,
+      declaration: `<div data-oc-declaration></div>`,
+      settingsLink: `<a href="#" data-oc-open>Cookie settings</a>`,
       policyUrl: `${config.publicUrl}/api/v1/sites/${site.key}/policy?lang=${site.defaultLocale}`,
       manualBlocking: `<script type="text/plain" data-oc-category="statistics" src="https://example.com/analytics.js"></script>`,
     };
@@ -443,6 +447,13 @@ export async function buildServer(opts: { dbFile?: string; logger?: boolean; aut
     reply.header('Cache-Control', 'public, max-age=300').type('text/html; charset=utf-8');
     return readFileSync(join(homepage, 'index.html'), 'utf8');
   });
+  // Other pages of the homepage: /cookies serves cookies.html.
+  app.get<{ Params: { page: string } }>('/:page', async (req, reply) => {
+    const file = homepage && /^[a-z0-9-]+$/.test(req.params.page) ? join(homepage, `${req.params.page}.html`) : '';
+    if (!file || !existsSync(file)) return reply.code(404).send({ error: 'Not found' });
+    reply.header('Cache-Control', 'public, max-age=300').type('text/html; charset=utf-8');
+    return readFileSync(file, 'utf8');
+  });
   app.get('/admin', async (_req, reply) => reply.redirect('/admin/'));
   app.get('/admin/', sendAdmin);
 
@@ -492,6 +503,7 @@ function sanitiseSiteInput(b: unknown): SiteInput {
       background: colour(t.background) ?? '#ffffff',
       text: colour(t.text) ?? '#1a1a1a',
       position: t.position === 'center' || t.position === 'bottom-left' ? t.position : 'bottom',
+      floatingButton: t.floatingButton !== false,
     };
   }
   if (typeof i.textOverrides === 'object' && i.textOverrides) out.textOverrides = i.textOverrides as SiteInput['textOverrides'];

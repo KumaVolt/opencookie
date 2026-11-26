@@ -175,6 +175,7 @@ const MIGRATIONS = [
      last_used_ip TEXT NOT NULL DEFAULT ''
    )`,
   `CREATE INDEX api_tokens_user ON api_tokens (user_id)`,
+  `ALTER TABLE scans ADD COLUMN settings_link INTEGER`,
 ];
 
 export type Db = ReturnType<typeof openDb>;
@@ -204,7 +205,7 @@ const j = <T>(s: unknown, fallback: T): T => {
 
 type Row = Record<string, unknown>;
 
-const DEFAULT_THEME = { primary: '#1a1a1a', background: '#ffffff', text: '#1a1a1a', position: 'bottom' as const };
+const DEFAULT_THEME = { primary: '#1a1a1a', background: '#ffffff', text: '#1a1a1a', position: 'bottom' as const, floatingButton: true };
 
 function toSite(r: Row): Site {
   return {
@@ -263,6 +264,7 @@ function toScan(r: Row): ScanSummary {
     cookiesFound: Number(r.cookies_found),
     bannerDetected: r.banner_detected === null || r.banner_detected === undefined ? null : Boolean(r.banner_detected),
     thirdPartyHostsBeforeConsent: j(r.third_party_hosts, []),
+    settingsLinkFound: r.settings_link === null || r.settings_link === undefined ? null : Boolean(r.settings_link),
     error: (r.error as string) ?? null,
   };
 }
@@ -452,6 +454,7 @@ function repo(db: DatabaseSync) {
         cookies_found: patch.cookiesFound,
         banner_detected: patch.bannerDetected === undefined ? undefined : patch.bannerDetected === null ? null : patch.bannerDetected ? 1 : 0,
         third_party_hosts: patch.thirdPartyHostsBeforeConsent && JSON.stringify(patch.thirdPartyHostsBeforeConsent),
+        settings_link: patch.settingsLinkFound === undefined || patch.settingsLinkFound === null ? undefined : patch.settingsLinkFound ? 1 : 0,
         error: patch.error,
       };
       const set = Object.entries(cols).filter(([, v]) => v !== undefined);
